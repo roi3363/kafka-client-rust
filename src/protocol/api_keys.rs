@@ -1,4 +1,11 @@
-#[derive(Debug)]
+
+
+
+
+
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum ApiKeys {
     Produce,
     Fetch,
@@ -44,3 +51,4 @@ pub enum ApiKeys {
     DescribeDelegationToken,
     DeleteGroups,
 }
+

@@ -1,29 +1,10 @@
-use crate::utils::buffer_writer::{BufferWriter};
-use crate::protocol::top_level::ToBytes;
-use crate::protocol::header::RequestHeader;
-
-const API_KEY: i16 = 1;
-const API_VERSION: i16 = 8;
-const CORRELATION_ID: i32 = 112;
-const CLIENT_ID: &str = "roi";
-const TIMEOUT: i32 = 5000;
-const REPLICA_ID: i32 = 0;
-const MAX_WAIT_TIME: i32 = 4;
-const MIN_BYTES: i32 = 100;
-const MAX_BYTES: i32 = 10000000;
-const ARRAY_LENGTH_TOPICS: i32 = 1;
-const ARRAY_LENGTH_PARTITIONS: i32 = 3;
-const PARTITION: i32 = 0;
-const FETCH_OFFSET: i64 = 1;
-const PARTITION_MAX_BYTES: i32 = 1000000;
-
-
-
+use crate::protocol::request::ToBytes;
+use crate::protocol::primitives::KafkaPrimitive;
 
 #[derive(Debug)]
 pub struct FetchRequest {
     replica_id: i32,
-    max_wait_time: i32,
+    max_wait_ms: i32,
     min_bytes: i32,
     max_bytes: i32,
     isolation_level: i8,
@@ -35,13 +16,13 @@ pub struct FetchRequest {
 
 #[derive(Debug)]
 pub struct Topic {
-    name: String,
-    partitions: Partition,
+    topic: String,
+    partitions: Vec<Partition>,
 }
 
 #[derive(Debug)]
 pub struct ForgottenTopicsData {
-    name: String,
+    topic: String,
     partitions: Vec<i32>,
 }
 
@@ -49,20 +30,31 @@ pub struct ForgottenTopicsData {
 pub struct Partition {
     partition: i32,
     fetch_offset: i64,
+    log_start_offset: i64,
     partition_max_bytes: i32,
 }
 
 impl FetchRequest {
     pub fn new(topics: Vec<&str>) -> Self {
+        let partition = Partition {
+            partition: 0,
+            fetch_offset: 0,
+            log_start_offset: 0,
+            partition_max_bytes: 0
+        };
+        let topic = Topic {
+            topic: topics.get(0).unwrap().to_string(),
+            partitions: vec![partition]
+        };
         Self {
-            replica_id: 1,
-            max_wait_time: 1000,
-            min_bytes: 1,
-            max_bytes: 0,
+            replica_id: 0,
+            max_wait_ms: 5000,
+            min_bytes: i32::min_value(),
+            max_bytes: i32::max_value(),
             isolation_level: 0,
             session_id: 0,
             session_epoch: 0,
-            topics: vec![],
+            topics: vec![topic],
             forgotten_topics_data: vec![]
         }
     }
@@ -87,25 +79,40 @@ impl FetchRequest {
 ///     partitions => INT32
 impl ToBytes for FetchRequest {
     fn get_in_bytes(&self) -> Vec<u8> {
-        let mut buffer_writer = BufferWriter::new();
-        buffer_writer.write_int32(self.replica_id);
-        buffer_writer.write_int32(self.max_wait_time);
-        buffer_writer.write_int32(self.min_bytes);
-        buffer_writer.write_int32(self.max_bytes);
-        buffer_writer.write_int8(self.isolation_level);
-        buffer_writer.write_int32(self.session_id);
-        buffer_writer.write_int32(self.session_epoch);
+        let mut buffer = Vec::new();
+        self.replica_id.write_to_buffer(&mut buffer);
+        self.max_wait_ms.write_to_buffer(&mut buffer);
+        self.min_bytes.write_to_buffer(&mut buffer);
+        self.max_bytes.write_to_buffer(&mut buffer);
+        self.isolation_level.write_to_buffer(&mut buffer);
+        self.session_id.write_to_buffer(&mut buffer);
+        self.session_epoch.write_to_buffer(&mut buffer);
 
         let topics_len = self.topics.len() as i32;
-        buffer_writer.write_int32(topics_len);
-        // for topic in self.topics.iter() {
-        //     buffer_writer.write_str(topic.)
-        // }
+        topics_len.write_to_buffer(&mut buffer);
+        for topic in self.topics.iter() {
+            topic.topic.as_str().write_to_buffer(&mut buffer);
 
-        buffer_writer.buffer
-    }
+            let partitions_len = topic.partitions.len() as i32;
+            partitions_len.write_to_buffer(&mut buffer);
+            for partition in topic.partitions.iter() {
+                partition.partition.write_to_buffer(&mut buffer);
+                partition.fetch_offset.write_to_buffer(&mut buffer);
+                partition.log_start_offset.write_to_buffer(&mut buffer);
+                partition.partition_max_bytes.write_to_buffer(&mut buffer);
+            }
+        }
 
-    fn header(&self) -> RequestHeader {
-        RequestHeader::new(API_KEY, API_VERSION, CORRELATION_ID, CLIENT_ID.to_string())
+        let forgotten_topics_len = self.forgotten_topics_data.len() as i32;
+        forgotten_topics_len.write_to_buffer(&mut buffer);
+        for forgotten_topic in self.forgotten_topics_data.iter() {
+            forgotten_topic.topic.as_str().write_to_buffer(&mut buffer);
+            let partitions_len = forgotten_topic.partitions.len() as i32;
+            partitions_len.write_to_buffer(&mut buffer);
+            for partition in forgotten_topic.partitions.iter() {
+                partition.write_to_buffer(&mut buffer);
+            }
+        }
+        buffer
     }
 }
