@@ -58,8 +58,9 @@ impl ResponseHeader {
 
 impl FromBytes for ResponseHeader {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let mut response = Self::new();
-        response.correlation_id = response.correlation_id.read_from_buffer(buffer);
+        let mut response = Self {
+            correlation_id: 0.read_from_buffer(buffer),
+        };
         response
     }
 }

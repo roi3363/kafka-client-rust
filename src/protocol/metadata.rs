@@ -87,24 +87,23 @@ struct Partition {
 
 impl FromBytes for MetadataResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let mut response = Self::new();
-        response.throttle_time_ms = response.throttle_time_ms.read_from_buffer(buffer);
+        let mut response = Self {
+            throttle_time_ms: 0.read_from_buffer(buffer),
+            brokers: vec![],
+            cluster_id: "".to_string(),
+            controller_id: 0,
+            topics: vec![]
+        };
         let brokers_length = (response.brokers.len() as i32).read_from_buffer(buffer);
-        let mut brokers: Vec<Broker> = Vec::with_capacity(brokers_length as usize);
         for _ in 0..brokers_length {
             let mut broker = Broker {
-                node_id: 0,
-                host: "".to_string(),
-                port: 0,
-                rack: "".to_string()
+                node_id: 0.read_from_buffer(buffer),
+                host: "".to_string().read_from_buffer(buffer),
+                port: 0.read_from_buffer(buffer),
+                rack: "".to_string().read_from_buffer(buffer),
             };
-            broker.node_id = broker.node_id.read_from_buffer(buffer);
-            broker.host = broker.host.read_from_buffer(buffer);
-            broker.port = broker.port.read_from_buffer(buffer);
-            broker.rack = broker.rack.read_from_buffer(buffer);
-            brokers.push(broker);
+            response.brokers.push(broker);
         }
-        response.brokers = brokers;
         response.cluster_id = response.cluster_id.read_from_buffer(buffer);
         response.controller_id = response.controller_id.read_from_buffer(buffer);
 
@@ -112,40 +111,27 @@ impl FromBytes for MetadataResponse {
         let mut topics: Vec<Topic> = Vec::with_capacity(topics_length as usize);
         for _ in 0..topics_length {
             let mut topic = Topic {
-                error_code: 0,
-                name: "".to_string(),
-                is_internal: false,
+                error_code: 0.read_from_buffer(buffer),
+                name: "".to_string().read_from_buffer(buffer),
+                is_internal: false.read_from_buffer(buffer),
                 partitions: vec![]
             };
-            topic.error_code = topic.error_code.read_from_buffer(buffer);
-            topic.name = topic.name.read_from_buffer(buffer);
-            topic.is_internal = topic.is_internal.read_from_buffer(buffer);
 
             let partitions_length = (topic.partitions.len() as i32).read_from_buffer(buffer);
-            let mut partitions: Vec<Partition> = Vec::with_capacity(partitions_length as usize);
             for _ in 0..partitions_length {
                 let mut partition = Partition {
-                    error_code: 0,
-                    partition_index: 0,
-                    leader_id: 0,
-                    replica_nodes: vec![],
-                    isr_nodes: vec![],
-                    offline_replicas: vec![]
+                    error_code: 0.read_from_buffer(buffer),
+                    partition_index: 0.read_from_buffer(buffer),
+                    leader_id: 0.read_from_buffer(buffer),
+                    replica_nodes: vec![].read_from_buffer(buffer),
+                    isr_nodes: vec![].read_from_buffer(buffer),
+                    offline_replicas: vec![].read_from_buffer(buffer),
                 };
-                partition.error_code = partition.error_code.read_from_buffer(buffer);
-                partition.partition_index = partition.partition_index.read_from_buffer(buffer);
-                partition.leader_id = partition.leader_id.read_from_buffer(buffer);
-                partition.replica_nodes = partition.replica_nodes.read_from_buffer(buffer);
-                
-                partition.isr_nodes = partition.isr_nodes.read_from_buffer(buffer);
-                partition.offline_replicas = partition.offline_replicas.read_from_buffer(buffer);
-                partitions.push(partition);
+                topic.partitions.push(partition);
             }
-            topic.partitions = partitions;
             topics.push(topic);
         }
         response.topics = topics;
-        println!("{:#?}", response);
         response
     }
 }

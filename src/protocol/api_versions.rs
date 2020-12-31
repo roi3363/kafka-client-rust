@@ -24,9 +24,9 @@ impl ToBytes for ApiVersionsRequest {
 
 #[derive(Debug, Clone)]
 pub struct ApiVersionsResponse {
-    pub error_code: i16,
+    error_code: i16,
     pub api_keys: Vec<ApiKey>,
-    pub throttle_time_ms: i32,
+    throttle_time_ms: i32,
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -1,8 +1,7 @@
 use byteorder::{WriteBytesExt, BE, ReadBytesExt};
 use std::io::{Write, Cursor, Read};
 use std::str::from_utf8;
-use std::borrow::Borrow;
-use std::ops::Rem;
+
 
 
 pub trait KafkaPrimitive {
@@ -10,7 +9,9 @@ pub trait KafkaPrimitive {
     fn read_from_buffer(self, buffer: &mut Cursor<Vec<u8>>) -> Self;
 }
 
+
 impl KafkaPrimitive for bool {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i8(self as i8).unwrap();
     }
@@ -21,6 +22,7 @@ impl KafkaPrimitive for bool {
 }
 
 impl KafkaPrimitive for i8 {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i8(self).unwrap();
     }
@@ -31,6 +33,7 @@ impl KafkaPrimitive for i8 {
 }
 
 impl KafkaPrimitive for i16 {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i16::<BE>(self).unwrap();
     }
@@ -51,6 +54,7 @@ impl KafkaPrimitive for i32 {
 }
 
 impl KafkaPrimitive for i64 {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i64::<BE>(self).unwrap();
     }
@@ -61,17 +65,19 @@ impl KafkaPrimitive for i64 {
 }
 
 impl KafkaPrimitive for &str {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i16::<BE>(self.len() as i16).unwrap();
         buffer.write_all(self.as_bytes()).unwrap();
     }
 
-    fn read_from_buffer<'a>(mut self, buffer: &mut Cursor<Vec<u8>>) -> Self {
+    fn read_from_buffer(mut self, buffer: &mut Cursor<Vec<u8>>) -> Self {
         unimplemented!()
     }
 }
 
 impl KafkaPrimitive for String {
+
     fn write_to_buffer(self, buffer: &mut Vec<u8>) {
         buffer.write_i16::<BE>(self.len() as i16).unwrap();
         buffer.write_all(self.as_bytes()).unwrap();
@@ -85,6 +91,17 @@ impl KafkaPrimitive for String {
         let mut string_buffer = vec![0 as u8; string_len as usize];
         buffer.read_exact(&mut string_buffer).unwrap();
         self = from_utf8(string_buffer.as_slice()).unwrap().to_string();
+        self
+    }
+}
+
+impl KafkaPrimitive for Vec<u8> {
+    fn write_to_buffer(self, buffer: &mut Vec<u8>) {
+        buffer.write_all(self.as_slice()).unwrap();
+    }
+
+    fn read_from_buffer(mut self, buffer: &mut Cursor<Vec<u8>>) -> Self {
+        buffer.read_exact(&mut self).unwrap();
         self
     }
 }

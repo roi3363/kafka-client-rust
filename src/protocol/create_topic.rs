@@ -25,9 +25,18 @@ const TOPICS_LENGTH: i32 = 1; // Always creates one topic at a time
 ///   validate_only => BOOLEAN
 #[derive(Debug)]
 pub struct CreateTopicRequest {
-    pub topic: TopicRequest,
-    pub timeout_ms: i32,
-    pub validate_only: bool,
+    topic: TopicRequest,
+    timeout_ms: i32,
+    validate_only: bool,
+}
+
+#[derive(Debug)]
+struct TopicRequest {
+    name: String,
+    num_partitions: i32,
+    replication_factor: i16,
+    assignments: Vec<Assignment>,
+    configs: Vec<Config>,
 }
 
 
@@ -70,17 +79,10 @@ impl ToBytes for CreateTopicRequest {
     }
 }
 
-#[derive(Debug)]
-pub  struct TopicRequest {
-    name: String,
-    num_partitions: i32,
-    replication_factor: i16,
-    assignments: Vec<Assignments>,
-    configs: Vec<Config>,
-}
+
 
 #[derive(Debug)]
-struct Assignments {
+struct Assignment {
     partition_index: i32,
     broker_ids: Vec<i32>,
 }
@@ -114,7 +116,7 @@ impl TopicRequest {
 #[derive(Debug)]
 pub struct CreateTopicResponse {
     throttle_time_ms: i32,
-    pub topics: Vec<TopicRequest>,
+    topics: Vec<TopicRequest>,
 }
 
 struct TopicResponse {
@@ -134,19 +136,18 @@ impl CreateTopicResponse {
 
 impl FromBytes for CreateTopicResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let mut response = Self::new();
-        response.throttle_time_ms = response.throttle_time_ms.read_from_buffer(buffer);
+        let mut response = Self {
+            throttle_time_ms: 0.read_from_buffer(buffer),
+            topics: vec![]
+        };
         let topics_length = (response.topics.len() as i32).read_from_buffer(buffer);
         let mut topics: Vec<TopicResponse> = Vec::with_capacity(topics_length as usize);
         for _ in 0..topics_length {
             let mut topic = TopicResponse {
-                name: "".to_string(),
-                error_code: 0,
-                error_message: "".to_string()
+                name: "".to_string().read_from_buffer(buffer),
+                error_code: 0.read_from_buffer(buffer),
+                error_message: "".to_string().read_from_buffer(buffer),
             };
-            topic.name = topic.name.read_from_buffer(buffer);
-            topic.error_code = topic.error_code.read_from_buffer(buffer);
-            topic.error_message = topic.error_message.read_from_buffer(buffer);
             topics.push(topic);
         }
         response

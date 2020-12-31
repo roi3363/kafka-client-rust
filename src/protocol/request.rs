@@ -1,8 +1,6 @@
 use crate::protocol::header::RequestHeader;
 
 
-
-
 #[derive(Debug)]
 pub struct Request<T: ToBytes> {
     pub size: i32,
@@ -12,6 +10,7 @@ pub struct Request<T: ToBytes> {
 }
 
 impl<T: ToBytes> Request<T> {
+
     pub fn new(header: RequestHeader, body: T) -> Self {
         let mut buffer = header.get_in_bytes();
         buffer.extend(body.get_in_bytes());
@@ -23,8 +22,6 @@ impl<T: ToBytes> Request<T> {
             buffer,
         }
     }
-
-
 
     pub fn add_size(buffer: &mut Vec<u8>) -> i32 {
         let buffer_length = (buffer.len() - 4) as i32; // 4 bytes kept for the size of the message

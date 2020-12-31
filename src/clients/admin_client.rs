@@ -1,5 +1,5 @@
 use std::net::TcpStream;
-use std::io::{Write};
+use std::io::{Write, Read, Cursor};
 
 use crate::protocol::api_versions::{ApiVersionsRequest, ApiVersionsResponse, ApiKey};
 use crate::protocol::response::Response;
@@ -14,7 +14,12 @@ use crate::protocol::api_keys::ApiKeys;
 
 use crate::protocol::metadata::{MetadataRequest, MetadataResponse};
 use crate::clients::kafka_client::KafkaClient;
-use crate::protocol::fetch::FetchRequest;
+use crate::protocol::fetch::{FetchRequest, FetchResponse};
+use crate::protocol::primitives::KafkaPrimitive;
+use std::process::exit;
+use byteorder::{ReadBytesExt, BE};
+use crate::protocol::api_keys::ApiKeys::OffsetCommit;
+use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
 
 const CORRELATION_ID: i32 = 19;
 const CLIENT_ID: i32 = 1;
@@ -82,7 +87,7 @@ impl AdminClient {
 
     pub fn fetch_metadata(&mut self, topics: Vec<&str>) {
         let api_key =  self.api_versions.get(&(ApiKeys::Metadata as i16)).unwrap();
-        let header = RequestHeader::new(api_key.key, api_key.max_version, CORRELATION_ID, self.client_id.clone());
+        let header = RequestHeader::new(api_key.key, 6, CORRELATION_ID, self.client_id.clone());
         let body = MetadataRequest::new(topics);
         let request = Request::new(header, body);
         self.send_request(request.buffer);
@@ -91,10 +96,21 @@ impl AdminClient {
 
     pub fn fetch(&mut self, topics: Vec<&str>) {
         let api_key =  self.api_versions.get(&(ApiKeys::Fetch as i16)).unwrap();
-        let header = RequestHeader::new(api_key.key, api_key.max_version, CORRELATION_ID, self.client_id.clone());
+        let header = RequestHeader::new(api_key.key, 8, CORRELATION_ID, self.client_id.clone());
         let body = FetchRequest::new(topics);
         let request = Request::new(header, body);
         self.send_request(request.buffer);
-        // let response = Response::<FetchRe>::new(self.stream());
+        let response = Response::<FetchResponse>::new(self.stream());
+        println!("{:#?}", response);
+    }
+
+    pub fn commit_offset(&mut self, topics: Vec<&str>) {
+        let api_key =  self.api_versions.get(&(ApiKeys::OffsetCommit as i16)).unwrap();
+        let header = RequestHeader::new(api_key.key, 6, CORRELATION_ID, self.client_id.clone());
+        let body = CommitOffsetRequest::new("topics".to_string());
+        let request = Request::new(header, body);
+        self.send_request(request.buffer);
+        let response = Response::<CommitOffsetResponse>::new(self.stream());
+        println!("{:#?}", response);
     }
 }
