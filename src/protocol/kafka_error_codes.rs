@@ -1,22 +1,33 @@
 use std::collections::HashMap;
+use std::process::exit;
+use log::{info, warn, error};
+use crate::protocol::primitives::KafkaString;
 
 #[derive(Debug)]
 pub struct KafkaError {
-    code: i8,
-    error: &'static str,
-    description: &'static str,
+    pub code: i16,
+    pub error: String,
+    pub description: String,
 }
 
-fn kafka_error(code: i8, error: &'static str, description: &'static str) -> KafkaError {
+pub fn check_errors(error_code: i16) {
+    if error_code != 0 {
+        let kafka_error = KAFKA_ERRORS.get(&error_code).unwrap();
+        error!("Error: {}\nReason: {}", kafka_error.error, kafka_error.description);
+        exit(1);
+    }
+}
+
+fn kafka_error(code: i16, error: &str, description: &str) -> KafkaError {
     KafkaError {
         code,
-        error,
-        description,
+        error: error.to_string(),
+        description: description.to_string(),
     }
 }
 
 lazy_static! {
-    pub static ref KAFKA_ERRORS: HashMap<i8, KafkaError> = {
+    pub static ref KAFKA_ERRORS: HashMap<i16, KafkaError> = {
         let mut m = HashMap::new();
         m.insert(-1, kafka_error(-1, "UNKNOWN_SERVER_ERROR", "The server experienced an unexpected error when processing the request."));
         m.insert(0, kafka_error(0, "NONE", ""));

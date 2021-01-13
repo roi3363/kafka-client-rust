@@ -16,7 +16,7 @@ pub struct Response<T: FromBytes> {
 }
 
 impl<T: FromBytes> Response<T> {
-    pub fn new(stream: &mut TcpStream) -> Self {
+    pub fn build(stream: &mut TcpStream) -> Self {
         let mut buffer = vec![0 as u8; 4]; // Buffer for the size of the message
         let message_size: i32;
         buffer = match stream.read_exact(&mut buffer) {

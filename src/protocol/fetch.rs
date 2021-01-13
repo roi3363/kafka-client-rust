@@ -1,13 +1,15 @@
 use crate::protocol::request::ToBytes;
-use crate::protocol::primitives::{KafkaPrimitive};
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString, VarInt, VarString};
 use crate::protocol::response::FromBytes;
-use std::io::{Cursor, Seek, SeekFrom, Read};
-use std::convert::TryInto;
-use byteorder::{ReadBytesExt, BE, BigEndian};
+use std::io::{Cursor};
+
 use std::str::{from_utf8, Utf8Error};
-use crc::crc32;
-use crate::utils::buffer_utils::BufferUtils;
-use std::process::exit;
+
+use crate::protocol::api_keys::ApiKeys::Metadata;
+use crate::protocol::metadata::MetadataResponse;
+use crate::protocol::kafka_error_codes::check_errors;
+use std::collections::HashMap;
+use crate::clients::kafka_client::PartitionMetadata;
 
 #[derive(Debug)]
 pub struct FetchRequest {
@@ -18,18 +20,18 @@ pub struct FetchRequest {
     isolation_level: i8,
     session_id: i32,
     session_epoch: i32,
-    topics: Vec<TopicRequest>,
+    topics: Vec<TopicFetchRequest>,
     forgotten_topics_data: Vec<ForgottenTopics>,
 }
 
 #[derive(Debug)]
-struct TopicRequest {
-    topic: String,
-    partitions: Vec<Partition>,
+struct TopicFetchRequest {
+    topic: KafkaString,
+    partitions: Vec<PartitionFetchRequest>,
 }
 
 #[derive(Debug)]
-struct Partition {
+struct PartitionFetchRequest {
     partition: i32,
     fetch_offset: i64,
     log_start_offset: i64,
@@ -38,31 +40,40 @@ struct Partition {
 
 #[derive(Debug)]
 struct ForgottenTopics {
-    topic: String,
+    topic: KafkaString,
     partitions: Vec<i32>,
 }
 
+
+
 impl FetchRequest {
-    pub fn new(topics: Vec<&str>) -> Self {
-        let partition = Partition {
-            partition: 0,
-            fetch_offset: 27,
-            log_start_offset: 0,
-            partition_max_bytes: 20000,
-        };
-        let topic = TopicRequest {
-            topic: topics.get(0).unwrap().to_string(),
-            partitions: vec![partition],
-        };
+    pub fn new(partitions_by_topics: HashMap<String, &Vec<i32>>) -> Self {
+        let mut topic_requests = Vec::new();
+        for (topic, partitions) in partitions_by_topics {
+            let mut topic_request = TopicFetchRequest {
+                topic: KafkaString(topic),
+                partitions: Vec::new(),
+            };
+            for &partition in partitions {
+                let partition_request = PartitionFetchRequest {
+                    partition,
+                    fetch_offset: 0,
+                    log_start_offset: 0,
+                    partition_max_bytes: 10000
+                };
+                topic_request.partitions.push(partition_request);
+            }
+            topic_requests.push(topic_request);
+        }
         Self {
             replica_id: -1,
             max_wait_ms: 5000,
-            min_bytes: 10,
+            min_bytes: 100000,
             max_bytes: 1000000,
             isolation_level: 0,
             session_id: 0,
             session_epoch: 0,
-            topics: vec![topic],
+            topics: topic_requests,
             forgotten_topics_data: vec![],
         }
     }
@@ -100,7 +111,7 @@ impl ToBytes for FetchRequest {
         let topics_len = self.topics.len() as i32;
         topics_len.write_to_buffer(&mut buffer);
         for topic in self.topics.iter() {
-            topic.topic.as_str().write_to_buffer(&mut buffer);
+            topic.topic.write_to_buffer(&mut buffer);
 
             let partitions_len = topic.partitions.len() as i32;
             partitions_len.write_to_buffer(&mut buffer);
@@ -115,7 +126,7 @@ impl ToBytes for FetchRequest {
         let forgotten_topics_len = self.forgotten_topics_data.len() as i32;
         forgotten_topics_len.write_to_buffer(&mut buffer);
         for forgotten_topic in self.forgotten_topics_data.iter() {
-            forgotten_topic.topic.as_str().write_to_buffer(&mut buffer);
+            forgotten_topic.topic.write_to_buffer(&mut buffer);
             let partitions_len = forgotten_topic.partitions.len() as i32;
             partitions_len.write_to_buffer(&mut buffer);
             for partition in forgotten_topic.partitions.iter() {
@@ -132,17 +143,17 @@ pub struct FetchResponse {
     throttle_time_ms: i32,
     error_code: i16,
     session_id: i32,
-    responses: Vec<TopicResponse>,
+    pub responses: Vec<TopicFetchResponse>,
 }
 
 #[derive(Debug)]
-struct TopicResponse {
-    topic: String,
-    partition_responses: Vec<PartitionResponse>,
+pub struct TopicFetchResponse {
+    topic: KafkaString,
+    pub partition_responses: Vec<PartitionFetchResponse>,
 }
 
 #[derive(Debug)]
-struct PartitionResponse {
+pub struct PartitionFetchResponse {
     partition: i32,
     error_code: i16,
     high_watermark: i64,
@@ -182,9 +193,9 @@ struct Record {
     timestamp_delta: i32,
     offset_delta: i32,
     key_length: i32,
-    key: String,
-    value_len: i32,
-    value: String,
+    key: VarString,
+    value_length: i32,
+    value: VarString,
     headers: Vec<RecordHeader>,
 }
 
@@ -192,9 +203,9 @@ struct Record {
 #[derive(Debug)]
 struct RecordHeader {
     header_key_length: i32,
-    header_key: String,
+    header_key: VarString,
     header_value_length: i32,
-    header_value: String,
+    header_value: VarString,
 }
 
 
@@ -206,6 +217,60 @@ impl FetchResponse {
             session_id: 0,
             responses: vec![],
         }
+    }
+
+    fn read_record(buffer: &mut Cursor<Vec<u8>>) -> RecordBatch {
+        let mut batch = RecordBatch {
+            base_offset: i64::read_from_buffer(buffer),
+            batch_length: i32::read_from_buffer(buffer),
+            partition_leader_epoch: i32::read_from_buffer(buffer),
+            magic: i8::read_from_buffer(buffer),
+            crc: i32::read_from_buffer(buffer),
+            attributes: i16::read_from_buffer(buffer),
+            last_offset_delta: i32::read_from_buffer(buffer),
+            first_timestamp: i64::read_from_buffer(buffer),
+            max_timestamp: i64::read_from_buffer(buffer),
+            producer_id: i64::read_from_buffer(buffer),
+            producer_epoch: i16::read_from_buffer(buffer),
+            base_sequence: i32::read_from_buffer(buffer),
+            records: vec![],
+        };
+        let _records_length = i32::read_from_buffer(buffer);
+
+        let length = VarInt::read_from_buffer(buffer);
+        let attributes = i8::read_from_buffer(buffer);
+        let timestamp_delta = VarInt::read_from_buffer(buffer);
+        let offset_delta = VarInt::read_from_buffer(buffer);
+        let key = VarString::read_from_buffer(buffer);
+        let key_length =  key.0.len() as i32;
+        let value = VarString::read_from_buffer(buffer);
+        let value_length = value.0.len() as i32;
+        let mut record = Record {
+            length: length.0,
+            attributes,
+            timestamp_delta: timestamp_delta.0,
+            offset_delta: offset_delta.0,
+            key_length,
+            key,
+            value_length,
+            value,
+            headers: vec![],
+        };
+
+        let _header_len = VarInt::read_from_buffer(buffer);
+        let header_key = VarString::read_from_buffer(buffer);
+        let header_key_length = header_key.0.len() as i32;
+        let header_value = VarString::read_from_buffer(buffer);
+        let header_value_length = header_value.0.len() as i32;
+        let header = RecordHeader {
+            header_key_length,
+            header_key,
+            header_value_length,
+            header_value,
+        };
+        record.headers.push(header);
+        batch.records.push(record);
+        batch
     }
 }
 
@@ -228,43 +293,45 @@ impl FetchResponse {
 impl FromBytes for FetchResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
         let mut response = Self {
-            throttle_time_ms: 0.read_from_buffer(buffer),
-            error_code: 0.read_from_buffer(buffer),
-            session_id: 0.read_from_buffer(buffer),
+            throttle_time_ms: i32::read_from_buffer(buffer),
+            error_code: i16::read_from_buffer(buffer),
+            session_id: i32::read_from_buffer(buffer),
             responses: vec![],
         };
+        check_errors(response.error_code);
 
-        let topic_responses_len = 0_i32.read_from_buffer(buffer);
+        let topic_responses_len = i32::read_from_buffer(buffer);
         for _ in 0..topic_responses_len {
-            let mut topic_response = TopicResponse {
-                topic: "".to_string().read_from_buffer(buffer),
+            let mut topic_response = TopicFetchResponse {
+                topic: KafkaString::read_from_buffer(buffer),
                 partition_responses: vec![],
             };
 
-            let partition_response_len = 0_i32.read_from_buffer(buffer);
+            let partition_response_len = i32::read_from_buffer(buffer);
             for _ in 0..partition_response_len {
-                let mut partition_response = PartitionResponse {
-                    partition: 0.read_from_buffer(buffer),
-                    error_code: 0.read_from_buffer(buffer),
-                    high_watermark: 0.read_from_buffer(buffer),
-                    last_stable_offset: 0.read_from_buffer(buffer),
-                    log_start_offset: 0.read_from_buffer(buffer),
+                let mut partition_response = PartitionFetchResponse {
+                    partition: i32::read_from_buffer(buffer),
+                    error_code: i16::read_from_buffer(buffer),
+                    high_watermark: i64::read_from_buffer(buffer),
+                    last_stable_offset: i64::read_from_buffer(buffer),
+                    log_start_offset: i64::read_from_buffer(buffer),
                     aborted_transactions: vec![],
                     record_set: vec![],
                 };
+                check_errors(partition_response.error_code);
 
-                let aborted_txn_len = 0_i32.read_from_buffer(buffer);
+                let aborted_txn_len = i32::read_from_buffer(buffer);
                 for _ in 0..aborted_txn_len {
                     let aborted_txn = AbortedTransactions {
-                        producer_id: 0.read_from_buffer(buffer),
-                        first_offset: 0.read_from_buffer(buffer),
+                        producer_id: i64::read_from_buffer(buffer),
+                        first_offset: i64::read_from_buffer(buffer),
                     };
                     partition_response.aborted_transactions.push(aborted_txn);
                 }
-                let records_bytes_len = 0i32.read_from_buffer(buffer);
+                let records_bytes_len = i32::read_from_buffer(buffer);
                 let end = buffer.position() as i32 + records_bytes_len;
                 while (buffer.position() as i32) < end {
-                    let record = read_record(buffer);
+                    let record = Self::read_record(buffer);
                     partition_response.record_set.push(record);
                 }
                 topic_response.partition_responses.push(partition_response);
@@ -276,56 +343,3 @@ impl FromBytes for FetchResponse {
 }
 
 
-fn read_record(buffer: &mut Cursor<Vec<u8>>) -> RecordBatch {
-    let mut batch = RecordBatch {
-        base_offset: 0.read_from_buffer(buffer),
-        batch_length: 0.read_from_buffer(buffer),
-        partition_leader_epoch: 0.read_from_buffer(buffer),
-        magic: 0.read_from_buffer(buffer),
-        crc: 0.read_from_buffer(buffer),
-        attributes: 0.read_from_buffer(buffer),
-        last_offset_delta: 0.read_from_buffer(buffer),
-        first_timestamp: 0.read_from_buffer(buffer),
-        max_timestamp: 0.read_from_buffer(buffer),
-        producer_id: 0.read_from_buffer(buffer),
-        producer_epoch: 0.read_from_buffer(buffer),
-        base_sequence: 0.read_from_buffer(buffer),
-        records: vec![],
-    };
-    let _records_length = 0_i32.read_from_buffer(buffer);
-
-    let length = BufferUtils::read_varint(buffer);
-    let attributes = 0_i8.read_from_buffer(buffer);
-    let timestamp_delta = BufferUtils::read_varint(buffer);
-    let offset_delta = BufferUtils::read_varint(buffer);
-    let key_length = BufferUtils::read_varint(buffer);
-    let key = BufferUtils::read_string(key_length, buffer);
-    let value_len = BufferUtils::read_varint(buffer);
-    let value = BufferUtils::read_string(value_len, buffer);
-    let mut record = Record {
-        length,
-        attributes,
-        timestamp_delta,
-        offset_delta,
-        key_length,
-        key,
-        value_len,
-        value,
-        headers: vec![],
-    };
-
-    let _header_len = BufferUtils::read_varint(buffer);
-    let header_key_length = BufferUtils::read_varint(buffer);
-    let header_key = BufferUtils::read_string(header_key_length, buffer);
-    let header_value_length = BufferUtils::read_varint(buffer);
-    let header_value = BufferUtils::read_string(header_value_length, buffer);
-    let header = RecordHeader {
-        header_key_length,
-        header_key,
-        header_value_length,
-        header_value,
-    };
-    record.headers.push(header);
-    batch.records.push(record);
-    batch
-}

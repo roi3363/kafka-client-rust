@@ -1,31 +1,30 @@
 use crate::protocol::request::ToBytes;
-use crate::protocol::primitives::KafkaPrimitive;
-
-use serde::export::Vec;
-
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString, KafkaArray};
 use std::io::{Cursor};
 use crate::protocol::response::FromBytes;
+use crate::protocol::kafka_error_codes::check_errors;
+use byteorder::{WriteBytesExt, BE};
 
 
-
-pub struct MetadataRequest<'a> {
-    topics: Vec<&'a str>,
+pub struct MetadataRequest {
+    topics: KafkaArray<String>,
     allow_auto_topic_creation: bool,
 }
 
-impl <'a> MetadataRequest<'a> {
-    pub fn new(topics: Vec<&'a str>) -> Self {
+impl MetadataRequest {
+    pub fn new(topics: &Vec<String>) -> Self {
         Self {
-            topics,
+            topics: KafkaArray(topics.clone()),
             allow_auto_topic_creation: false
         }
     }
 }
 
-impl <'a> ToBytes for MetadataRequest<'a> {
+impl ToBytes for MetadataRequest {
     fn get_in_bytes(&self) -> Vec<u8> {
-        let mut buffer = Vec::new();
-        self.topics.as_slice().write_to_buffer(&mut buffer);
+        let topics_len = self.topics.0.len() as i32;
+        let mut buffer = Vec::with_capacity(topics_len as usize);
+        self.topics.write_to_buffer(&mut buffer);
         self.allow_auto_topic_creation.write_to_buffer(&mut buffer);
         buffer
     }
@@ -52,34 +51,34 @@ impl <'a> ToBytes for MetadataRequest<'a> {
 ///       offline_replicas => INT32
 #[derive(Debug)]
 pub struct MetadataResponse {
-    throttle_time_ms: i32,
-    brokers: Vec<Broker>,
-    cluster_id: String,
-    controller_id: i32,
-    topics: Vec<Topic>
+    pub throttle_time_ms: i32,
+    pub brokers: Vec<Broker>,
+    pub cluster_id: String,
+    pub controller_id: i32,
+    pub topics: Vec<TopicMetadataResponse>,
 }
 
 #[derive(Debug)]
-struct Broker {
-    node_id: i32,
-    host: String,
-    port: i32,
+pub struct Broker {
+    pub node_id: i32,
+    pub host: String,
+    pub port: i32,
     rack: String,
 }
 
 #[derive(Debug)]
-struct Topic {
-    error_code: i16,
-    name: String,
+pub struct TopicMetadataResponse {
+    pub error_code: i16,
+    pub name: String,
     is_internal: bool,
-    partitions: Vec<Partition>
+    pub partitions: Vec<PartitionMetadataResponse>,
 }
 
 #[derive(Debug)]
-struct Partition {
+pub struct PartitionMetadataResponse {
     error_code: i16,
-    partition_index: i32,
-    leader_id: i32,
+    pub partition_index: i32,
+    pub leader_id: i32,
     replica_nodes: Vec<i32>,
     isr_nodes: Vec<i32>,
     offline_replicas: Vec<i32>,
@@ -88,65 +87,50 @@ struct Partition {
 impl FromBytes for MetadataResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
         let mut response = Self {
-            throttle_time_ms: 0.read_from_buffer(buffer),
+            throttle_time_ms: i32::read_from_buffer(buffer),
             brokers: vec![],
             cluster_id: "".to_string(),
             controller_id: 0,
             topics: vec![]
         };
-        let brokers_length = (response.brokers.len() as i32).read_from_buffer(buffer);
+        let brokers_length = i32::read_from_buffer(buffer);
         for _ in 0..brokers_length {
-            let mut broker = Broker {
-                node_id: 0.read_from_buffer(buffer),
-                host: "".to_string().read_from_buffer(buffer),
-                port: 0.read_from_buffer(buffer),
-                rack: "".to_string().read_from_buffer(buffer),
+            let broker = Broker {
+                node_id: i32::read_from_buffer(buffer),
+                host: KafkaString::read_from_buffer(buffer).0,
+                port: i32::read_from_buffer(buffer),
+                rack: KafkaString::read_from_buffer(buffer).0,
             };
             response.brokers.push(broker);
         }
-        response.cluster_id = response.cluster_id.read_from_buffer(buffer);
-        response.controller_id = response.controller_id.read_from_buffer(buffer);
+        response.cluster_id =  KafkaString::read_from_buffer(buffer).0;
+        response.controller_id = i32::read_from_buffer(buffer);
 
-        let topics_length = (response.topics.len() as i32).read_from_buffer(buffer);
-        let mut topics: Vec<Topic> = Vec::with_capacity(topics_length as usize);
+        let topics_length = i32::read_from_buffer(buffer);
         for _ in 0..topics_length {
-            let mut topic = Topic {
-                error_code: 0.read_from_buffer(buffer),
-                name: "".to_string().read_from_buffer(buffer),
-                is_internal: false.read_from_buffer(buffer),
+            let mut topic = TopicMetadataResponse {
+                error_code: i16::read_from_buffer(buffer),
+                name: KafkaString::read_from_buffer(buffer).0,
+                is_internal: bool::read_from_buffer(buffer),
                 partitions: vec![]
             };
+            check_errors(topic.error_code);
 
-            let partitions_length = (topic.partitions.len() as i32).read_from_buffer(buffer);
+            let partitions_length = i32::read_from_buffer(buffer);
             for _ in 0..partitions_length {
-                let mut partition = Partition {
-                    error_code: 0.read_from_buffer(buffer),
-                    partition_index: 0.read_from_buffer(buffer),
-                    leader_id: 0.read_from_buffer(buffer),
-                    replica_nodes: vec![].read_from_buffer(buffer),
-                    isr_nodes: vec![].read_from_buffer(buffer),
-                    offline_replicas: vec![].read_from_buffer(buffer),
+                let partition = PartitionMetadataResponse {
+                    error_code:  i16::read_from_buffer(buffer),
+                    partition_index:  i32::read_from_buffer(buffer),
+                    leader_id:  i32::read_from_buffer(buffer),
+                    replica_nodes: KafkaArray::read_from_buffer(buffer).0,
+                    isr_nodes: KafkaArray::read_from_buffer(buffer).0,
+                    offline_replicas: KafkaArray::read_from_buffer(buffer).0,
                 };
+
                 topic.partitions.push(partition);
             }
-            topics.push(topic);
+            response.topics.push(topic);
         }
-        response.topics = topics;
         response
     }
 }
-
-
-
-impl MetadataResponse {
-    fn new() -> Self {
-        Self {
-            throttle_time_ms: 0,
-            brokers: vec![],
-            cluster_id: "".to_string(),
-            controller_id: 0,
-            topics: vec![]
-        }
-    }
-}
-

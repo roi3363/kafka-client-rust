@@ -8,5 +8,4 @@ pub mod request;
 pub mod response;
 pub mod api_keys;
 pub mod offset_commit;
-pub mod find_coordinator;
 pub mod kafka_error_codes;

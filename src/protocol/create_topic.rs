@@ -1,6 +1,5 @@
 
-use serde::export::Vec;
-use crate::protocol::primitives::{KafkaPrimitive};
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString};
 use crate::protocol::request::{ToBytes};
 use crate::protocol::response::FromBytes;
 use std::io::Cursor;
@@ -32,7 +31,7 @@ pub struct CreateTopicRequest {
 
 #[derive(Debug)]
 struct TopicRequest {
-    name: String,
+    name: KafkaString,
     num_partitions: i32,
     replication_factor: i16,
     assignments: Vec<Assignment>,
@@ -59,19 +58,23 @@ impl ToBytes for CreateTopicRequest {
         let configs_len = self.topic.configs.len() as i32;
 
         TOPICS_LENGTH.write_to_buffer(&mut buffer);
-        self.topic.name.as_str().write_to_buffer(&mut buffer);
+        self.topic.name.write_to_buffer(&mut buffer);
         self.topic.num_partitions.write_to_buffer(&mut buffer);
         self.topic.replication_factor.write_to_buffer(&mut buffer);
 
         assignments_len.write_to_buffer(&mut buffer);
         for assignment in  self.topic.assignments.iter() {
             assignment.partition_index.write_to_buffer(&mut buffer);
-            assignment.broker_ids.clone().write_to_buffer(&mut buffer);
+            let broker_ids_len = assignment.broker_ids.len() as i32;
+            broker_ids_len.write_to_buffer(&mut buffer);
+            for i in &assignment.broker_ids {
+                i.write_to_buffer(&mut buffer)
+            }
         }
         configs_len.write_to_buffer(&mut buffer);
         for config in  self.topic.configs.iter() {
-            config.name.as_str().write_to_buffer(&mut buffer);
-            config.value.as_str().write_to_buffer(&mut buffer);
+            config.name.write_to_buffer(&mut buffer);
+            config.value.write_to_buffer(&mut buffer);
         }
         TIMEOUT.write_to_buffer(&mut buffer);
         self.validate_only.write_to_buffer(&mut buffer);
@@ -89,8 +92,8 @@ struct Assignment {
 
 #[derive(Debug)]
 struct Config {
-    name: String,
-    value: String
+    name: KafkaString,
+    value: KafkaString
 }
 
 impl TopicRequest {
@@ -98,7 +101,7 @@ impl TopicRequest {
         let assignments = vec![];
         let configs = vec![];
         Self {
-            name,
+            name: KafkaString(name),
             num_partitions,
             replication_factor,
             assignments,
@@ -120,9 +123,9 @@ pub struct CreateTopicResponse {
 }
 
 struct TopicResponse {
-    name: String,
+    name: KafkaString,
     error_code: i16,
-    error_message: String,
+    error_message: KafkaString,
 }
 
 impl CreateTopicResponse {
@@ -137,16 +140,16 @@ impl CreateTopicResponse {
 impl FromBytes for CreateTopicResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
         let mut response = Self {
-            throttle_time_ms: 0.read_from_buffer(buffer),
+            throttle_time_ms: i32::read_from_buffer(buffer),
             topics: vec![]
         };
-        let topics_length = (response.topics.len() as i32).read_from_buffer(buffer);
+        let topics_length = i32::read_from_buffer(buffer);
         let mut topics: Vec<TopicResponse> = Vec::with_capacity(topics_length as usize);
         for _ in 0..topics_length {
             let mut topic = TopicResponse {
-                name: "".to_string().read_from_buffer(buffer),
-                error_code: 0.read_from_buffer(buffer),
-                error_message: "".to_string().read_from_buffer(buffer),
+                name: KafkaString::read_from_buffer(buffer),
+                error_code: i16::read_from_buffer(buffer),
+                error_message: KafkaString::read_from_buffer(buffer),
             };
             topics.push(topic);
         }

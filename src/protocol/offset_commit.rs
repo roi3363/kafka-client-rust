@@ -1,19 +1,19 @@
 use crate::protocol::request::ToBytes;
-use crate::protocol::primitives::KafkaPrimitive;
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString};
 use crate::protocol::response::FromBytes;
 use std::io::Cursor;
-use crate::utils::buffer_utils::BufferUtils;
+use crate::protocol::kafka_error_codes::{KAFKA_ERRORS, check_errors};
 
 
 pub struct CommitOffsetRequest {
-    group_id: String,
+    group_id: KafkaString,
     generation_id: i32,
-    member_id: String,
+    member_id: KafkaString,
     topics: Vec<TopicRequest>,
 }
 
 struct TopicRequest {
-    name: String,
+    name: KafkaString,
     partitions: Vec<PartitionRequest>,
 }
 
@@ -21,7 +21,7 @@ struct PartitionRequest {
     partition_index: i32,
     committed_offset: i64,
     committed_leader_epoch: i32,
-    committed_metadata: String,
+    committed_metadata: KafkaString,
 }
 
 impl CommitOffsetRequest {
@@ -30,16 +30,16 @@ impl CommitOffsetRequest {
             partition_index: 0,
             committed_offset: 45,
             committed_leader_epoch: 0,
-            committed_metadata: "".to_string()
+            committed_metadata: KafkaString("".to_string())
         };
         let topic = TopicRequest {
-            name: "test".to_string(),
+            name: KafkaString("test".to_string()),
             partitions: vec![partition]
         };
         Self {
-            group_id: "roi".to_string(),
+            group_id: KafkaString("roi".to_string()),
             generation_id: 1,
-            member_id: "roi".to_string(),
+            member_id: KafkaString("roi".to_string()),
             topics: vec![topic],
         }
     }
@@ -60,14 +60,14 @@ impl CommitOffsetRequest {
 impl ToBytes for CommitOffsetRequest {
     fn get_in_bytes(&self) -> Vec<u8> {
         let mut buffer = Vec::new();
-        self.group_id.as_str().write_to_buffer(&mut buffer);
+        self.group_id.write_to_buffer(&mut buffer);
         self.generation_id.write_to_buffer(&mut buffer);
-        self.member_id.as_str().write_to_buffer(&mut buffer);
+        self.member_id.write_to_buffer(&mut buffer);
 
         let topics_len = self.topics.len() as i32;
         topics_len.write_to_buffer(&mut buffer);
         for topic in self.topics.iter() {
-            topic.name.as_str().write_to_buffer(&mut buffer);
+            topic.name.write_to_buffer(&mut buffer);
 
             let partitions_len = topic.partitions.len() as i32;
             partitions_len.write_to_buffer(&mut buffer);
@@ -75,7 +75,7 @@ impl ToBytes for CommitOffsetRequest {
                 partition.partition_index.write_to_buffer(&mut buffer);
                 partition.committed_offset.write_to_buffer(&mut buffer);
                 partition.committed_leader_epoch.write_to_buffer(&mut buffer);
-                partition.committed_metadata.as_str().write_to_buffer(&mut buffer);
+                partition.committed_metadata.write_to_buffer(&mut buffer);
             }
         }
         buffer
@@ -97,7 +97,7 @@ pub struct CommitOffsetResponse {
 }
 #[derive(Debug)]
 struct TopicResponse {
-    name: String,
+    name: KafkaString,
     partitions: Vec<PartitionResponse>,
 }
 
@@ -110,22 +110,25 @@ struct PartitionResponse {
 impl FromBytes for CommitOffsetResponse {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self {
         let mut response = Self {
-            throttle_time_ms: 0.read_from_buffer(buffer),
+            throttle_time_ms: i32::read_from_buffer(buffer),
             topics: vec![]
         };
-        let topic_len = 0_i32.read_from_buffer(buffer);
+        let topic_len = i32::read_from_buffer(buffer);
         for _ in 0..topic_len {
             let mut topic = TopicResponse {
-                name: "".to_string().read_from_buffer(buffer),
+                name: KafkaString::read_from_buffer(buffer),
                 partitions: vec![]
             };
-            let partitions_length = (topic.partitions.len() as i32).read_from_buffer(buffer);
+            let partitions_length = i32::read_from_buffer(buffer);
             for _ in 0..partitions_length {
-                let parition = PartitionResponse {
-                    partition_index: 0.read_from_buffer(buffer),
-                    error_code: 0.read_from_buffer(buffer),
+                let partition = PartitionResponse {
+                    partition_index: i32::read_from_buffer(buffer),
+                    error_code: i16::read_from_buffer(buffer),
                 };
-                topic.partitions.push(parition);
+                if partition.error_code != 0 {
+                    check_errors(partition.error_code);
+                }
+                topic.partitions.push(partition);
             }
             response.topics.push(topic);
         }
