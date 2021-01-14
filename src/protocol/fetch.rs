@@ -300,16 +300,16 @@ impl FromBytes for FetchResponse {
         };
         check_errors(response.error_code);
 
-        let topic_responses_len = i32::read_from_buffer(buffer);
-        for _ in 0..topic_responses_len {
-            let mut topic_response = TopicFetchResponse {
+        let topics_len = i32::read_from_buffer(buffer);
+        for _ in 0..topics_len {
+            let mut topic = TopicFetchResponse {
                 topic: KafkaString::read_from_buffer(buffer),
                 partition_responses: vec![],
             };
 
-            let partition_response_len = i32::read_from_buffer(buffer);
-            for _ in 0..partition_response_len {
-                let mut partition_response = PartitionFetchResponse {
+            let partitions_len = i32::read_from_buffer(buffer);
+            for _ in 0..partitions_len {
+                let mut partition = PartitionFetchResponse {
                     partition: i32::read_from_buffer(buffer),
                     error_code: i16::read_from_buffer(buffer),
                     high_watermark: i64::read_from_buffer(buffer),
@@ -318,7 +318,7 @@ impl FromBytes for FetchResponse {
                     aborted_transactions: vec![],
                     record_set: vec![],
                 };
-                check_errors(partition_response.error_code);
+                check_errors(partition.error_code);
 
                 let aborted_txn_len = i32::read_from_buffer(buffer);
                 for _ in 0..aborted_txn_len {
@@ -326,17 +326,17 @@ impl FromBytes for FetchResponse {
                         producer_id: i64::read_from_buffer(buffer),
                         first_offset: i64::read_from_buffer(buffer),
                     };
-                    partition_response.aborted_transactions.push(aborted_txn);
+                    partition.aborted_transactions.push(aborted_txn);
                 }
                 let records_bytes_len = i32::read_from_buffer(buffer);
                 let end = buffer.position() as i32 + records_bytes_len;
                 while (buffer.position() as i32) < end {
                     let record = Self::read_record(buffer);
-                    partition_response.record_set.push(record);
+                    partition.record_set.push(record);
                 }
-                topic_response.partition_responses.push(partition_response);
+                topic.partition_responses.push(partition);
             }
-            response.responses.push(topic_response);
+            response.responses.push(topic);
         }
         response
     }

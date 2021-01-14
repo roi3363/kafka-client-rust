@@ -13,7 +13,7 @@ pub struct KafkaError {
 pub fn check_errors(error_code: i16) {
     if error_code != 0 {
         let kafka_error = KAFKA_ERRORS.get(&error_code).unwrap();
-        error!("Error: {}\nReason: {}", kafka_error.error, kafka_error.description);
+        eprintln!("Error: {}\nReason: {}", kafka_error.error, kafka_error.description);
         exit(1);
     }
 }

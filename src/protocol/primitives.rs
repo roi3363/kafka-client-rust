@@ -1,6 +1,7 @@
 use byteorder::{WriteBytesExt, BE, ReadBytesExt};
 use std::io::{Write, Cursor, Read};
 use std::str::from_utf8;
+use std::process::exit;
 
 pub trait KafkaPrimitive {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>);
@@ -31,6 +32,30 @@ impl KafkaPrimitive for VarInt {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct UVarInt(pub u32);
+
+impl KafkaPrimitive for UVarInt {
+    fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
+        unimplemented!()
+    }
+
+    fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
+        let mut i = 0;
+        let mut value = 0;
+        let mut b = buffer.read_u8().unwrap() as u32;
+        while (b & 0x80) != 0 {
+            value |= (b & 0x7f) << i;
+            i += 7;
+            b = buffer.read_u8().unwrap() as u32;
+        }
+        value |= b << i;
+        // value >>= 7;
+        println!("{:#?}", b);
+        Self(b - 1)
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct VarString(pub String);
@@ -49,6 +74,29 @@ impl KafkaPrimitive for VarString {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct KafkaCompactString(pub String);
+
+impl KafkaPrimitive for KafkaCompactString {
+    fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
+        let kafka_string = &self.0;
+        buffer.write_i16::<BE>((kafka_string.len() + 1) as i16).unwrap();
+        buffer.write_all(kafka_string.as_bytes()).unwrap();
+    }
+
+    fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
+        let string_len = UVarInt::read_from_buffer(buffer).0;
+        // if string_len == -1 {
+        //     return KafkaCompactString("".to_string());
+        // }
+        let mut string_buffer = vec![0 as u8; string_len as usize];
+        buffer.read(&mut string_buffer).unwrap();
+        let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
+        println!("{:#?}", kafka_string);
+        KafkaCompactString(kafka_string)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KafkaString(pub String);

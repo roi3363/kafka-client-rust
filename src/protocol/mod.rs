@@ -9,3 +9,6 @@ pub mod response;
 pub mod api_keys;
 pub mod offset_commit;
 pub mod kafka_error_codes;
+pub mod list_offsets;
+pub mod join_group;
+pub mod find_coordinator;

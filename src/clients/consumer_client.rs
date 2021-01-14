@@ -12,9 +12,11 @@ use crate::protocol::fetch::{FetchRequest, FetchResponse};
 use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
 use crate::clients::kafka_client::KafkaClient;
 use crate::protocol::primitives::{KafkaArray, KafkaString};
-use rayon::prelude::*;
 use std::thread;
 use std::thread::JoinHandle;
+use crate::protocol::list_offsets::{ListOffsetsRequest, ListOffsetsResponse};
+use crate::protocol::join_group::{JoinGroupResponse, JoinGroupRequest};
+use crate::protocol::find_coordinator::{FindCoordinatorResponse, FindCoordinatorRequest};
 
 const CLIENT_ID: &str = "consumer-client";
 
@@ -39,6 +41,7 @@ impl ConsumerClient {
         if !self.topics_metadata_in_cache(&topics) {
             self.kafka_client.update_topics_metadata();
         }
+
         let mut child_threads = Vec::new();
         for topic in topics {
             let partitions = &self.kafka_client.topics_metadata.get(topic).unwrap().clone();
@@ -73,6 +76,27 @@ impl ConsumerClient {
         let body = CommitOffsetRequest::new(topics.get(0).unwrap().to_string());
         let response: Response<CommitOffsetResponse> = self.kafka_client.send_request(
             None, ApiKeys::OffsetCommit, body, 4);
+        response
+    }
+
+    pub fn list_offsets(&self, topics: &Vec<&str>) -> Response<ListOffsetsResponse> {
+        let body = ListOffsetsRequest::new(topics);
+        let response: Response<ListOffsetsResponse> = self.kafka_client.send_request(
+            None, ApiKeys::ListOffsets, body, 3);
+        response
+    }
+
+    pub fn join_group(&self) -> Response<JoinGroupResponse> {
+        let body = JoinGroupRequest::new();
+        let response: Response<JoinGroupResponse> = self.kafka_client.send_request(
+            None, ApiKeys::JoinGroup, body, 3);
+        response
+    }
+
+    pub fn find_coordinator(&self) -> Response<FindCoordinatorResponse> {
+        let body = FindCoordinatorRequest::new();
+        let response: Response<FindCoordinatorResponse> = self.kafka_client.send_request(
+            None, ApiKeys::FindCoordinator, body, 2);
         response
     }
 }
