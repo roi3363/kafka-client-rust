@@ -10,7 +10,6 @@ use crate::clients::kafka_client::KafkaClient;
 
 const API_VERSIONS_VERSION: i16 = 1;
 const CLIENT_ID: &str = "api-versions-fetcher";
-const CORRELATION_ID: i32 = 19;
 
 #[derive(Debug, Copy, Clone)]
 pub struct ApiVersion {
@@ -20,10 +19,10 @@ pub struct ApiVersion {
 }
 
 
-pub fn api_versions(stream: &mut TcpStream) -> HashMap<i16, ApiVersion> {
+pub fn api_versions(stream: &mut TcpStream, correlation_id: i32) -> HashMap<i16, ApiVersion> {
     let api_versions_key = ApiKeys::ApiVersions as i16;
     let header = RequestHeader::new(api_versions_key, API_VERSIONS_VERSION,
-                                    CORRELATION_ID, CLIENT_ID.to_string());
+                                    correlation_id, CLIENT_ID.to_string());
 
     let body = ApiVersionsRequest {};
     let request = Request::new(header, body);

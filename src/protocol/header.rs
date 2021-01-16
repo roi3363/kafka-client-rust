@@ -45,9 +45,9 @@ pub struct ResponseHeader {
 
 
 impl ResponseHeader {
-    pub fn new() -> Self {
+    pub fn new(correlation_id: i32) -> Self {
         Self {
-            correlation_id: 0,
+            correlation_id,
         }
     }
 }

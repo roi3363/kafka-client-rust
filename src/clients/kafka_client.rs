@@ -11,7 +11,6 @@ use crate::protocol::request::{Request, ToBytes};
 use crate::protocol::response::{FromBytes, Response};
 use std::borrow::BorrowMut;
 
-const CORRELATION_ID: i32 = 19;
 
 #[derive(Debug)]
 pub struct PartitionMetadata {
@@ -26,6 +25,7 @@ pub struct KafkaClient {
     hosts: Vec<String>,
     pub brokers: HashMap<i32, String>,
     pub topics_metadata: HashMap<String, HashMap<i32, Vec<i32>>>,
+    correlation_id: i32,
 }
 
 impl KafkaClient {
@@ -36,26 +36,32 @@ impl KafkaClient {
             brokers: HashMap::new(),
             hosts: hosts.iter().map(|x| x.to_string()).collect(),
             topics_metadata: HashMap::new(),
+            correlation_id: 1,
         };
         kafka_client.connect();
         let mut broker = kafka_client.tcp_stream(None);
-        kafka_client.api_versions = api_versions(&mut broker);
+        kafka_client.api_versions = api_versions(&mut broker, kafka_client.correlation_id());
         kafka_client.update_topics_metadata();
         kafka_client
+    }
+
+    pub fn correlation_id(&mut self) -> i32 {
+        self.correlation_id += 1;
+        self.correlation_id
     }
 
     // pub fn select_broker(&mut self, node_id: i32) -> &mut TcpStream {
     //     self.conn_pool.get_mut(&node_id).unwrap()
     // }
 
-    pub fn send_request<T: ToBytes, U: FromBytes>(&self,
+    pub fn send_request<T: ToBytes, U: FromBytes>(&mut self,
                                                   node_id: Option<i32>,
                                                   api_key: ApiKeys,
                                                   request_body: T,
                                                   api_version_tmp: i16) -> Response<U> {
         let api_version = self.api_versions.get(&(api_key as i16)).unwrap();
         let header = RequestHeader::new(api_version.api_key, api_version_tmp,
-                                        CORRELATION_ID, self.client_id.clone());
+                                        self.correlation_id(), self.client_id.clone());
         let request = Request::new(header, request_body);
         let mut stream = self.tcp_stream(node_id);
         stream.write(request.buffer.as_slice()).unwrap();
@@ -65,13 +71,13 @@ impl KafkaClient {
 
     pub fn send_request2<T: ToBytes, U: FromBytes>(client_id: String,
                                                    api_version: ApiVersion,
-                                                   node_id: Option<String>,
+                                                   mut stream: TcpStream,
                                                    request_body: T,
+                                                   correlation_id: i32,
                                                    api_version_tmp: i16) -> Response<U> {
         let header = RequestHeader::new(api_version.api_key, api_version_tmp,
-                                        CORRELATION_ID, client_id);
+                                        correlation_id, client_id);
         let request = Request::new(header, request_body);
-        let mut stream = Self::tcp_stream2(node_id);
         stream.write(request.buffer.as_slice()).unwrap();
         let response = Response::<U>::build(&mut stream);
         response
@@ -95,7 +101,10 @@ impl KafkaClient {
             exit(1);
         }
 
-        let metadata = Self::fetch_initial_metadata(self.tcp_stream(None).borrow_mut()).body;
+        let metadata = Self::fetch_initial_metadata(
+            self.tcp_stream(None).borrow_mut(), self.correlation_id()
+        ).body;
+
         println!("Client ({}) successfully connected to cluster on hosts:", self.client_id);
         for broker in &metadata.brokers {
             let host = format!("{}:{}", broker.host, broker.port);
@@ -124,10 +133,10 @@ impl KafkaClient {
         response
     }
 
-    pub fn fetch_initial_metadata(stream: &mut TcpStream) -> Response<MetadataResponse> {
+    pub fn fetch_initial_metadata(stream: &mut TcpStream, correlation_id: i32) -> Response<MetadataResponse> {
         let body = MetadataRequest::new(Vec::new().as_ref());
         let header = RequestHeader::new(ApiKeys::Metadata as i16, 6,
-                                        CORRELATION_ID, "initial-metadata".to_string());
+                                        correlation_id, "initial-metadata".to_string());
         let request = Request::new(header, body);
         stream.write(request.buffer.as_slice()).unwrap();
         let response = Response::<MetadataResponse>::build(stream);

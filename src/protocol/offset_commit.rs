@@ -28,7 +28,7 @@ impl CommitOffsetRequest {
     pub fn new(group_id: String) -> Self {
         let partition = PartitionRequest {
             partition_index: 0,
-            committed_offset: 45,
+            committed_offset: 10,
             committed_leader_epoch: 0,
             committed_metadata: KafkaString("".to_string())
         };

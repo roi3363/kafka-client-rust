@@ -17,13 +17,13 @@ use std::thread::JoinHandle;
 use crate::protocol::list_offsets::{ListOffsetsRequest, ListOffsetsResponse};
 use crate::protocol::join_group::{JoinGroupResponse, JoinGroupRequest};
 use crate::protocol::find_coordinator::{FindCoordinatorResponse, FindCoordinatorRequest};
+use std::iter::Map;
 
 const CLIENT_ID: &str = "consumer-client";
 
 #[derive(Debug)]
 pub struct ConsumerClient {
     pub kafka_client: KafkaClient,
-
 }
 
 impl ConsumerClient {
@@ -37,7 +37,7 @@ impl ConsumerClient {
         self.kafka_client.topics_metadata.keys().any(|x| topics.contains(&x.as_str()))
     }
 
-    pub fn fetch(&mut self, topics: Vec<&str>) {
+    pub fn fetch(&mut self, topics: Vec<&str>) -> Vec<Response<FetchResponse>> {
         if !self.topics_metadata_in_cache(&topics) {
             self.kafka_client.update_topics_metadata();
         }
@@ -54,46 +54,48 @@ impl ConsumerClient {
                 let body = FetchRequest::new(partitions_by_topic);
                 let api_version = self.kafka_client.api_versions.get(&(ApiKeys::Fetch as i16)).unwrap().clone();
                 let broker = self.kafka_client.brokers.get(&node_id).unwrap().to_string();
+                let correlation_id = self.kafka_client.correlation_id();
                 child_threads.push(thread::spawn(move || {
                     let response: Response<FetchResponse> = KafkaClient::send_request2(
-                        "roi".to_string(),
+                        CLIENT_ID.to_string(),
                         api_version,
                         Some(broker),
                         body,
+                        correlation_id,
                         8
                     );
-                    println!("{:#?}, {}", response.message_size, node_id);
+                    response
                 }));
             }
         }
-        for t in child_threads {
-            t.join().unwrap();
-        }
+        let mut responses = Vec::new();
+        child_threads.into_iter().for_each(|x| responses.push(x.join().unwrap()));
+        responses
     }
 
 
-    pub fn commit_offset(&self, topics: &Vec<&str>) -> Response<CommitOffsetResponse> {
+    pub fn commit_offset(&mut self, topics: Vec<&str>) -> Response<CommitOffsetResponse> {
         let body = CommitOffsetRequest::new(topics.get(0).unwrap().to_string());
         let response: Response<CommitOffsetResponse> = self.kafka_client.send_request(
             None, ApiKeys::OffsetCommit, body, 4);
         response
     }
 
-    pub fn list_offsets(&self, topics: &Vec<&str>) -> Response<ListOffsetsResponse> {
+    pub fn list_offsets(&mut self, topics: &Vec<&str>) -> Response<ListOffsetsResponse> {
         let body = ListOffsetsRequest::new(topics);
         let response: Response<ListOffsetsResponse> = self.kafka_client.send_request(
             None, ApiKeys::ListOffsets, body, 3);
         response
     }
 
-    pub fn join_group(&self) -> Response<JoinGroupResponse> {
-        let body = JoinGroupRequest::new();
+    pub fn join_group(&mut self, group_id: String) -> Response<JoinGroupResponse> {
+        let body = JoinGroupRequest::new(group_id);
         let response: Response<JoinGroupResponse> = self.kafka_client.send_request(
             None, ApiKeys::JoinGroup, body, 3);
         response
     }
 
-    pub fn find_coordinator(&self) -> Response<FindCoordinatorResponse> {
+    pub fn find_coordinator(&mut self) -> Response<FindCoordinatorResponse> {
         let body = FindCoordinatorRequest::new();
         let response: Response<FindCoordinatorResponse> = self.kafka_client.send_request(
             None, ApiKeys::FindCoordinator, body, 2);
