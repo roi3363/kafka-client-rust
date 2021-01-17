@@ -30,7 +30,7 @@ impl ToBytes for RequestHeader {
         self.api_version.write_to_buffer(&mut buffer);
         self.correlation_id.write_to_buffer(&mut buffer);
         self.client_id.write_to_buffer(&mut buffer);
-        buffer.to_owned()
+        buffer
     }
 }
 

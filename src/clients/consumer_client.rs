@@ -19,6 +19,7 @@ use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
 use crate::protocol::primitives::{KafkaArray, KafkaString};
 use crate::protocol::request::Request;
 use crate::protocol::response::Response;
+use crate::protocol::produce::{ProduceResponse, ProduceRequest};
 
 const CLIENT_ID: &str = "consumer-client";
 
@@ -100,6 +101,16 @@ impl ConsumerClient {
         let body = FindCoordinatorRequest::new();
         let response: Response<FindCoordinatorResponse> = self.kafka_client.send_request(
             None, ApiKeys::FindCoordinator, body, 2);
+        response
+    }
+
+    pub fn produce(&mut self, topics: Vec<&str>) -> Response<ProduceResponse> {
+        if !self.topics_metadata_in_cache(&topics) {
+            self.kafka_client.update_topics_metadata();
+        }
+        let body = ProduceRequest::new();
+        let response: Response<ProduceResponse> = self.kafka_client.send_request(
+            None, ApiKeys::Produce, body, 6);
         response
     }
 }

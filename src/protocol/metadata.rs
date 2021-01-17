@@ -55,7 +55,7 @@ pub struct MetadataResponse {
     pub brokers: Vec<Broker>,
     pub cluster_id: String,
     pub controller_id: i32,
-    pub topics: Vec<TopicMetadataResponse>,
+    pub topics: Vec<TopicResponse>,
 }
 
 #[derive(Debug)]
@@ -67,15 +67,15 @@ pub struct Broker {
 }
 
 #[derive(Debug)]
-pub struct TopicMetadataResponse {
+struct TopicResponse {
     pub error_code: i16,
     pub name: String,
     is_internal: bool,
-    pub partitions: Vec<PartitionMetadataResponse>,
+    pub partitions: Vec<PartitionResponse>,
 }
 
 #[derive(Debug)]
-pub struct PartitionMetadataResponse {
+struct PartitionResponse {
     error_code: i16,
     pub partition_index: i32,
     pub leader_id: i32,
@@ -108,7 +108,7 @@ impl FromBytes for MetadataResponse {
 
         let topics_length = i32::read_from_buffer(buffer);
         for _ in 0..topics_length {
-            let mut topic = TopicMetadataResponse {
+            let mut topic = TopicResponse {
                 error_code: i16::read_from_buffer(buffer),
                 name: KafkaString::read_from_buffer(buffer).0,
                 is_internal: bool::read_from_buffer(buffer),
@@ -118,7 +118,7 @@ impl FromBytes for MetadataResponse {
 
             let partitions_length = i32::read_from_buffer(buffer);
             for _ in 0..partitions_length {
-                let partition = PartitionMetadataResponse {
+                let partition = PartitionResponse {
                     error_code:  i16::read_from_buffer(buffer),
                     partition_index:  i32::read_from_buffer(buffer),
                     leader_id:  i32::read_from_buffer(buffer),

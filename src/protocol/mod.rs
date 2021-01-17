@@ -12,3 +12,5 @@ pub mod kafka_error_codes;
 pub mod list_offsets;
 pub mod join_group;
 pub mod find_coordinator;
+pub mod produce;
+pub mod record;

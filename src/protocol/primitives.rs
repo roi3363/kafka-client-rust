@@ -1,7 +1,8 @@
-use byteorder::{WriteBytesExt, BE, ReadBytesExt};
-use std::io::{Write, Cursor, Read};
-use std::str::from_utf8;
+use std::io::{Cursor, Read, Write};
 use std::process::exit;
+use std::str::from_utf8;
+
+use byteorder::{BE, ReadBytesExt, WriteBytesExt};
 
 pub trait KafkaPrimitive {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>);
@@ -117,6 +118,32 @@ impl KafkaPrimitive for KafkaString {
         buffer.read_exact(&mut string_buffer).unwrap();
         let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
         KafkaString(kafka_string)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct KafkaNullableString(pub Option<String>);
+
+impl KafkaPrimitive for KafkaNullableString {
+    fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
+        if self.0.is_none() {
+            buffer.write_i16::<BE>(-1).unwrap();
+            return;
+        }
+        let kafka_string = &self.0.unwrap();
+        buffer.write_i16::<BE>(kafka_string.len() as i16).unwrap();
+        buffer.write_all(kafka_string.as_bytes()).unwrap();
+    }
+
+    fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
+        let string_len = buffer.read_i16::<BE>().unwrap();
+        if string_len == -1 {
+            return KafkaNullableString(None);
+        }
+        let mut string_buffer = vec![0 as u8; string_len as usize];
+        buffer.read_exact(&mut string_buffer).unwrap();
+        let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
+        KafkaNullableString(Some(kafka_string))
     }
 }
 

@@ -15,15 +15,15 @@ use crate::protocol::primitives::{KafkaString, KafkaPrimitive};
 pub struct ListOffsetsRequest {
     replica_id: i32,
     isolation_level: i8,
-    topics: Vec<ListOffsetsTopicRequest>,
+    topics: Vec<TopicRequest>,
 }
 
-struct ListOffsetsTopicRequest {
+struct TopicRequest {
     name: KafkaString,
-    partitions: Vec<ListOffsetsPartitionRequest>
+    partitions: Vec<PartitionRequest>
 }
 
-struct ListOffsetsPartitionRequest {
+struct PartitionRequest {
     partition_index: i32,
     timestamp: i64,
 }
@@ -77,18 +77,18 @@ impl ToBytes for ListOffsetsRequest {
 #[derive(Debug)]
 pub struct ListOffsetsResponse {
     throttle_time_ms: i32,
-    topics: Vec<ListOffsetsTopicResponse>,
+    topics: Vec<TopicResponse>,
 
 }
 
 #[derive(Debug)]
-struct ListOffsetsTopicResponse {
+struct TopicResponse {
     name: KafkaString,
-    partitions: Vec<ListOffsetsPartitionResponse>
+    partitions: Vec<PartitionResponse>
 }
 
 #[derive(Debug)]
-struct ListOffsetsPartitionResponse {
+struct PartitionResponse {
     partition_index: i32,
     timestamp: i64,
     offset: i64,
@@ -103,14 +103,14 @@ impl FromBytes for ListOffsetsResponse {
         };
         let topics_len = i32::read_from_buffer(buffer);
         for _ in 0..topics_len {
-            let mut topic = ListOffsetsTopicResponse {
+            let mut topic = TopicResponse {
                 name: KafkaString::read_from_buffer(buffer),
                 partitions: vec![],
             };
 
             let partitions_len = i32::read_from_buffer(buffer);
             for _ in 0..partitions_len {
-                let partition = ListOffsetsPartitionResponse {
+                let partition = PartitionResponse {
                     partition_index: i32::read_from_buffer(buffer),
                     timestamp: i64::read_from_buffer(buffer),
                     offset: i64::read_from_buffer(buffer),

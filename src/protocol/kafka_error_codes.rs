@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 use std::process::exit;
-use log::{info, warn, error};
-use crate::protocol::primitives::KafkaString;
 
 #[derive(Debug)]
 pub struct KafkaError {
