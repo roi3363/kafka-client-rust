@@ -1,23 +1,24 @@
-use std::net::TcpStream;
-use std::io::{Write, Cursor};
-use crate::protocol::api_versions::{ApiVersionsRequest, ApiVersionsResponse, ApiVersion, api_versions};
-use crate::protocol::response::Response;
 use std::collections::HashMap;
-use crate::protocol::header::RequestHeader;
-use crate::protocol::request::Request;
-use crate::protocol::create_topic::{CreateTopicRequest, CreateTopicResponse};
-use crate::protocol::api_keys::ApiKeys;
-use crate::protocol::metadata::{MetadataRequest, MetadataResponse};
-use crate::protocol::fetch::{FetchRequest, FetchResponse};
-use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
-use crate::clients::kafka_client::KafkaClient;
-use crate::protocol::primitives::{KafkaArray, KafkaString};
+use std::io::{Cursor, Write};
+use std::iter::Map;
+use std::net::TcpStream;
 use std::thread;
 use std::thread::JoinHandle;
+
+use crate::clients::kafka_client::KafkaClient;
+use crate::protocol::api_keys::ApiKeys;
+use crate::protocol::api_versions::{api_versions, ApiVersion, ApiVersionsRequest, ApiVersionsResponse};
+use crate::protocol::create_topic::{CreateTopicRequest, CreateTopicResponse};
+use crate::protocol::fetch::{FetchRequest, FetchResponse};
+use crate::protocol::find_coordinator::{FindCoordinatorRequest, FindCoordinatorResponse};
+use crate::protocol::header::RequestHeader;
+use crate::protocol::join_group::{JoinGroupRequest, JoinGroupResponse};
 use crate::protocol::list_offsets::{ListOffsetsRequest, ListOffsetsResponse};
-use crate::protocol::join_group::{JoinGroupResponse, JoinGroupRequest};
-use crate::protocol::find_coordinator::{FindCoordinatorResponse, FindCoordinatorRequest};
-use std::iter::Map;
+use crate::protocol::metadata::{MetadataRequest, MetadataResponse};
+use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
+use crate::protocol::primitives::{KafkaArray, KafkaString};
+use crate::protocol::request::Request;
+use crate::protocol::response::Response;
 
 const CLIENT_ID: &str = "consumer-client";
 
@@ -59,7 +60,7 @@ impl ConsumerClient {
                     let response: Response<FetchResponse> = KafkaClient::send_request2(
                         CLIENT_ID.to_string(),
                         api_version,
-                        Some(broker),
+                        KafkaClient::tcp_stream2(broker),
                         body,
                         correlation_id,
                         8

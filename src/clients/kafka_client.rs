@@ -9,7 +9,10 @@ use crate::protocol::header::RequestHeader;
 use crate::protocol::metadata::{MetadataRequest, MetadataResponse};
 use crate::protocol::request::{Request, ToBytes};
 use crate::protocol::response::{FromBytes, Response};
-use std::borrow::BorrowMut;
+use std::borrow::{BorrowMut, Borrow};
+use std::slice::Iter;
+use std::iter::Cycle;
+use std::vec::IntoIter;
 
 
 #[derive(Debug)]
@@ -24,12 +27,14 @@ pub struct KafkaClient {
     pub api_versions: HashMap<i16, ApiVersion>,
     hosts: Vec<String>,
     pub brokers: HashMap<i32, String>,
+    next_broker: Cycle<IntoIter<i32>>,
     pub topics_metadata: HashMap<String, HashMap<i32, Vec<i32>>>,
     correlation_id: i32,
 }
 
 impl KafkaClient {
     pub fn new(hosts: &Vec<&str>, client_id: String) -> Self {
+
         let mut kafka_client = Self {
             client_id,
             api_versions: HashMap::new(),
@@ -37,8 +42,11 @@ impl KafkaClient {
             hosts: hosts.iter().map(|x| x.to_string()).collect(),
             topics_metadata: HashMap::new(),
             correlation_id: 1,
+            next_broker: Vec::new().into_iter().cycle(),
         };
         kafka_client.connect();
+        let brokers: Vec<i32> = kafka_client.brokers.keys().cloned().collect();
+        kafka_client.next_broker = brokers.into_iter().cycle();
         let mut broker = kafka_client.tcp_stream(None);
         kafka_client.api_versions = api_versions(&mut broker, kafka_client.correlation_id());
         kafka_client.update_topics_metadata();
@@ -50,9 +58,10 @@ impl KafkaClient {
         self.correlation_id
     }
 
-    // pub fn select_broker(&mut self, node_id: i32) -> &mut TcpStream {
-    //     self.conn_pool.get_mut(&node_id).unwrap()
-    // }
+    pub fn next_broker(&mut self) -> &String {
+        println!("{:#?}", self.next_broker.next().unwrap().borrow());
+        self.brokers.get(self.next_broker.next().unwrap().borrow()).unwrap()
+    }
 
     pub fn send_request<T: ToBytes, U: FromBytes>(&mut self,
                                                   node_id: Option<i32>,
@@ -102,7 +111,7 @@ impl KafkaClient {
         }
 
         let metadata = Self::fetch_initial_metadata(
-            self.tcp_stream(None).borrow_mut(), self.correlation_id()
+            Self::tcp_stream2(connected_brokers.get(0).unwrap().to_string()).borrow_mut(), self.correlation_id()
         ).body;
 
         println!("Client ({}) successfully connected to cluster on hosts:", self.client_id);
@@ -110,10 +119,14 @@ impl KafkaClient {
             let host = format!("{}:{}", broker.host, broker.port);
             self.brokers.insert(broker.node_id, host);
         }
+
     }
 
     pub fn update_topics_metadata(&mut self) {
         let metadata = self.fetch_metadata(Vec::new()).body;
+        if metadata.topics.is_empty() {
+            panic!("None of the topics could be found in the cluster.")
+        }
         for topic in metadata.topics {
             let topic_name = topic.name;
             for partition in topic.partitions {
@@ -143,22 +156,15 @@ impl KafkaClient {
         response
     }
 
-    fn least_loaded_broker(&self) -> String {
-        self.hosts.get(0).unwrap().to_string()
-    }
-
-
-    pub fn tcp_stream(&self, host: Option<i32>) -> TcpStream {
-        let broker;
+    pub fn tcp_stream(&mut self, host: Option<i32>) -> TcpStream {
         if host.is_none() {
-            broker = self.least_loaded_broker();
-            return TcpStream::connect(broker).unwrap();
+            return TcpStream::connect(self.next_broker()).unwrap();
         }
-        broker = self.brokers.get(&host.unwrap()).unwrap().to_owned();
+        let broker = self.brokers.get(&host.unwrap()).unwrap().to_owned();
         TcpStream::connect(broker).unwrap()
     }
 
-    pub fn tcp_stream2(host: Option<String>) -> TcpStream {
-        TcpStream::connect(host.unwrap()).unwrap()
+    pub fn tcp_stream2(host: String) -> TcpStream {
+        TcpStream::connect(host).unwrap()
     }
 }
