@@ -38,7 +38,17 @@ struct TopicRequest {
     configs: Vec<Config>,
 }
 
+#[derive(Debug)]
+struct Assignment {
+    partition_index: i32,
+    broker_ids: Vec<i32>,
+}
 
+#[derive(Debug)]
+struct Config {
+    name: KafkaString,
+    value: KafkaString
+}
 
 impl CreateTopicRequest {
     pub fn new(topic: &str, num_partitions: i32, replication_factor: i16) -> Self {
@@ -84,17 +94,7 @@ impl ToBytes for CreateTopicRequest {
 
 
 
-#[derive(Debug)]
-struct Assignment {
-    partition_index: i32,
-    broker_ids: Vec<i32>,
-}
 
-#[derive(Debug)]
-struct Config {
-    name: KafkaString,
-    value: KafkaString
-}
 
 impl TopicRequest {
     pub fn new(name: String, num_partitions: i32, replication_factor: i16) -> Self {

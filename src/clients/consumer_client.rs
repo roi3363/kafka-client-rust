@@ -21,7 +21,43 @@ use crate::protocol::request::Request;
 use crate::protocol::response::Response;
 use crate::protocol::produce::{ProduceResponse, ProduceRequest};
 
+#[macro_export]
+macro_rules! struct_value (
+    ({ $($t:ty: $fname:ident => $fvalue:expr),* $(,)? }) => (
+        use crate::protocol::primitives::KafkaPrimitive;
+
+        let mut buffer: Vec<u8> = Vec::new();
+        $(
+            if stringify!($t).starts_with("Vec") {
+                let kafka_array = KafkaArray($fvalue);
+                kafka_array(&mut buffer);
+            } else {
+                $fvalue.write_to_buffer(&mut buffer);
+            }
+        )*
+    );
+);
+
+
 const CLIENT_ID: &str = "consumer-client";
+
+#[macro_export]
+macro_rules! struct_def (
+    (struct $name:ident { $($fname:ident : $ftype:ty),+ $(,)? }) => (
+        struct Data {
+            $($fname : $ftype),*
+        }
+
+        impl Data {
+            fn fields() -> HashMap<String, String> {
+                let mut names = HashMap::new();
+                $(names.insert(stringify!($fname).to_string(), stringify!($ftype).to_string());)*
+                names
+            }
+        }
+    );
+);
+
 
 #[derive(Debug)]
 pub struct ConsumerClient {
@@ -104,7 +140,7 @@ impl ConsumerClient {
         response
     }
 
-    pub fn produce(&mut self, topics: Vec<&str>) -> Response<ProduceResponse> {
+    pub fn produce<T>(&mut self, topics: Vec<&str>, data: Vec<T>) -> Response<ProduceResponse> {
         if !self.topics_metadata_in_cache(&topics) {
             self.kafka_client.update_topics_metadata();
         }

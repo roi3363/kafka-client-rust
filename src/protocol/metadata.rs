@@ -52,14 +52,14 @@ impl ToBytes for MetadataRequest {
 #[derive(Debug)]
 pub struct MetadataResponse {
     pub throttle_time_ms: i32,
-    pub brokers: Vec<Broker>,
+    pub brokers: Vec<BrokerMetadataResponse>,
     pub cluster_id: String,
     pub controller_id: i32,
-    pub topics: Vec<TopicResponse>,
+    pub topics: Vec<TopicMetadataResponse>,
 }
 
 #[derive(Debug)]
-pub struct Broker {
+pub struct BrokerMetadataResponse {
     pub node_id: i32,
     pub host: String,
     pub port: i32,
@@ -67,15 +67,15 @@ pub struct Broker {
 }
 
 #[derive(Debug)]
-struct TopicResponse {
+pub struct TopicMetadataResponse {
     pub error_code: i16,
     pub name: String,
     is_internal: bool,
-    pub partitions: Vec<PartitionResponse>,
+    pub partitions: Vec<PartitionMetadataResponse>,
 }
 
 #[derive(Debug)]
-struct PartitionResponse {
+pub struct PartitionMetadataResponse {
     error_code: i16,
     pub partition_index: i32,
     pub leader_id: i32,
@@ -95,7 +95,7 @@ impl FromBytes for MetadataResponse {
         };
         let brokers_length = i32::read_from_buffer(buffer);
         for _ in 0..brokers_length {
-            let broker = Broker {
+            let broker = BrokerMetadataResponse {
                 node_id: i32::read_from_buffer(buffer),
                 host: KafkaString::read_from_buffer(buffer).0,
                 port: i32::read_from_buffer(buffer),
@@ -108,7 +108,7 @@ impl FromBytes for MetadataResponse {
 
         let topics_length = i32::read_from_buffer(buffer);
         for _ in 0..topics_length {
-            let mut topic = TopicResponse {
+            let mut topic = TopicMetadataResponse {
                 error_code: i16::read_from_buffer(buffer),
                 name: KafkaString::read_from_buffer(buffer).0,
                 is_internal: bool::read_from_buffer(buffer),
@@ -118,7 +118,7 @@ impl FromBytes for MetadataResponse {
 
             let partitions_length = i32::read_from_buffer(buffer);
             for _ in 0..partitions_length {
-                let partition = PartitionResponse {
+                let partition = PartitionMetadataResponse {
                     error_code:  i16::read_from_buffer(buffer),
                     partition_index:  i32::read_from_buffer(buffer),
                     leader_id:  i32::read_from_buffer(buffer),

@@ -147,13 +147,13 @@ pub struct FetchResponse {
 }
 
 #[derive(Debug)]
-struct TopicResponse {
+pub struct TopicResponse {
     topic: KafkaString,
     pub partition_responses: Vec<PartitionResponse>,
 }
 
 #[derive(Debug)]
-struct PartitionResponse {
+pub struct PartitionResponse {
     partition: i32,
     error_code: i16,
     high_watermark: i64,

@@ -34,7 +34,6 @@ pub struct KafkaClient {
 
 impl KafkaClient {
     pub fn new(hosts: &Vec<&str>, client_id: String) -> Self {
-
         let mut kafka_client = Self {
             client_id,
             api_versions: HashMap::new(),

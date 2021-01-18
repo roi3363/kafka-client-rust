@@ -130,7 +130,7 @@ impl KafkaPrimitive for KafkaNullableString {
             buffer.write_i16::<BE>(-1).unwrap();
             return;
         }
-        let kafka_string = &self.0.unwrap();
+        let kafka_string = self.0.as_ref().unwrap();
         buffer.write_i16::<BE>(kafka_string.len() as i16).unwrap();
         buffer.write_all(kafka_string.as_bytes()).unwrap();
     }
@@ -149,7 +149,7 @@ impl KafkaPrimitive for KafkaNullableString {
 
 
 #[derive(Debug, Clone)]
-pub struct KafkaArray<T>(pub Vec<T>);
+pub struct KafkaArray<T: KafkaPrimitive>(pub Vec<T>);
 
 impl<T: KafkaPrimitive> KafkaPrimitive for KafkaArray<T> {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
