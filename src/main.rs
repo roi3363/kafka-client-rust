@@ -18,30 +18,14 @@ use protocol::kafka_error_codes::KAFKA_ERRORS;
 use crate::clients::consumer_client::ConsumerClient;
 use std::any::Any;
 use regex::Regex;
-
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct Entity {
-    name: String,
-    age: i8,
-}
-
-
-
+use crate::protocol::primitives::{KafkaString};
 
 fn main() {
-    // let hosts = vec!["localhost:9092", "localhost:9093", "localhost:9094"];
-    // let mut consumer = ConsumerClient::new(hosts);
-    let entity = Entity { name: "roi".to_string(), age: 23 };
-
-
-
-    struct_value!({
-            String: age => "i8".to_string(),
-            Vec<String>: a => vec!["roi2".to_string(), "roi".to_string()],
-        });
-
-    // println!("{:#?}", Data::fields());
+    let hosts = vec!["localhost:9092"];
+    let topics = vec!["test2"];
+    let mut consumer = ConsumerClient::new(hosts);
+    consumer.produce("test4", "test".as_bytes().to_vec(), "value".as_bytes().to_vec());
+    // consumer.fetch(topics);
 }
 
 

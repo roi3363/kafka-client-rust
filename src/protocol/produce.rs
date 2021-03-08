@@ -1,9 +1,46 @@
 use std::io::Cursor;
 
-use crate::protocol::primitives::{KafkaPrimitive, KafkaString, KafkaNullableString};
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString, KafkaNullableString, VarInt};
 use crate::protocol::record::{Record, RecordBatch};
 use crate::protocol::request::ToBytes;
 use crate::protocol::response::FromBytes;
+
+
+pub struct ProduceRequest {
+    transactional_id: KafkaNullableString,
+    acks: i16,
+    timeout: i32,
+    topic_data: Vec<ProduceTopicDataRequest>,
+}
+
+struct ProduceTopicDataRequest {
+    pub topic: KafkaString,
+    pub data: Vec<ProduceDataRequest>,
+}
+
+struct ProduceDataRequest {
+    partition: i32,
+    record_batches: Vec<RecordBatch>,
+}
+
+impl ProduceRequest {
+    pub fn new(topic: String, key: Vec<u8>, value: Vec<u8>) -> Self {
+        let record = Record::new(key, value);
+        let produce_request = ProduceDataRequest {
+            partition: 0,
+            record_batches: vec![RecordBatch::new(vec![record])],
+        };
+        Self {
+            transactional_id: KafkaNullableString(Some("kjh".to_string())),
+            acks: 0,
+            timeout: 5000,
+            topic_data: vec![ProduceTopicDataRequest {
+                topic: KafkaString(topic),
+                data: vec![produce_request]
+            }]
+        }
+    }
+}
 
 /// Produce Request (Version: 6) => transactional_id acks timeout [topic_data]
 ///   transactional_id => NULLABLE_STRING
@@ -14,77 +51,22 @@ use crate::protocol::response::FromBytes;
 ///     data => partition record_set
 ///       partition => INT32
 ///       record_set => RECORDS
-pub struct ProduceRequest {
-    transactional_id: KafkaNullableString,
-    acks: i16,
-    timeout: i32,
-    topics: Vec<TopicRequest>,
-}
-
-struct TopicRequest {
-    partition: i32,
-    record_batches: Vec<RecordBatch>,
-}
-
-impl ProduceRequest {
-    pub fn new() -> Self {
-        Self {
-            transactional_id: KafkaNullableString(None),
-            acks: 0,
-            timeout: 0,
-            topics: vec![],
-        }
-    }
-}
-
 impl ToBytes for ProduceRequest {
     fn get_in_bytes(&self) -> Vec<u8> {
         let mut buffer = Vec::new();
-        0_i32.write_to_buffer(&mut buffer); // 4 first bytes reserved for the size of message.
         self.transactional_id.write_to_buffer(&mut buffer);
         self.acks.write_to_buffer(&mut buffer);
         self.timeout.write_to_buffer(&mut buffer);
-
-        (self.topics.len() as i32).write_to_buffer(&mut buffer);
-
-        for topic in self.topics.iter() {
-            topic.partition.write_to_buffer(&mut buffer);
-            (topic.record_batches.len() as i32).write_to_buffer(&mut buffer);
-
-            for record_batch in topic.record_batches.iter() {
-                record_batch.base_offset.write_to_buffer(&mut buffer);
-                record_batch.batch_length.write_to_buffer(&mut buffer);
-                record_batch.partition_leader_epoch.write_to_buffer(&mut buffer);
-                record_batch.magic.write_to_buffer(&mut buffer);
-                record_batch.crc.write_to_buffer(&mut buffer);
-                record_batch.attributes.write_to_buffer(&mut buffer);
-                record_batch.last_offset_delta.write_to_buffer(&mut buffer);
-                record_batch.first_timestamp.write_to_buffer(&mut buffer);
-                record_batch.max_timestamp.write_to_buffer(&mut buffer);
-                record_batch.producer_id.write_to_buffer(&mut buffer);
-                record_batch.producer_epoch.write_to_buffer(&mut buffer);
-                record_batch.base_sequence.write_to_buffer(&mut buffer);
-
-                (record_batch.records.len() as i32).write_to_buffer(&mut buffer);
-
-                for record in record_batch.records.iter() {
-                    record.length.write_to_buffer(&mut buffer);
-                    record.attributes.write_to_buffer(&mut buffer);
-                    record.timestamp_delta.write_to_buffer(&mut buffer);
-                    record.offset_delta.write_to_buffer(&mut buffer);
-                    record.key_length.write_to_buffer(&mut buffer);
-                    record.key.write_to_buffer(&mut buffer);
-                    record.value_length.write_to_buffer(&mut buffer);
-                    record.value.write_to_buffer(&mut buffer);
-
-                    (record.headers.len() as i32).write_to_buffer(&mut buffer);
-
-                    for header in record.headers.iter() {
-                        header.header_key_length.write_to_buffer(&mut buffer);
-                        header.header_key.write_to_buffer(&mut buffer);
-                        header.header_value_length.write_to_buffer(&mut buffer);
-                        header.header_value.write_to_buffer(&mut buffer);
-                    }
+        (self.topic_data.len() as i32).write_to_buffer(&mut buffer);
+        for topic_data in self.topic_data.iter() {
+            topic_data.topic.write_to_buffer(&mut buffer);
+            (topic_data.data.len() as i32).write_to_buffer(&mut buffer);
+            for data in &topic_data.data {
+                data.partition.write_to_buffer(&mut buffer);
+                for record_batch in data.record_batches.iter() {
+                    let record = record_batch.get_in_bytes();
+                    (record.len() as i32).write_to_buffer(&mut buffer);
+                    record.write_to_buffer(&mut buffer);
                 }
             }
         }
@@ -102,16 +84,17 @@ impl ToBytes for ProduceRequest {
 ///       log_append_time => INT64
 ///       log_start_offset => INT64
 ///   throttle_time_ms => INT32
+#[derive(Debug)]
 pub struct ProduceResponse {
     responses: Vec<TopicResponse>,
     throttle_time_ms: i32,
 }
-
+#[derive(Debug)]
 pub struct TopicResponse {
     topic: KafkaString,
     partition_responses: Vec<PartitionResponse>,
 }
-
+#[derive(Debug)]
 struct PartitionResponse {
     partition: i32,
     error_code: i16,

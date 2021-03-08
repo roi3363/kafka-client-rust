@@ -6,7 +6,7 @@ use crate::clients::kafka_client::PartitionMetadata;
 use crate::protocol::api_keys::ApiKeys::Metadata;
 use crate::protocol::kafka_error_codes::check_errors;
 use crate::protocol::metadata::MetadataResponse;
-use crate::protocol::primitives::{KafkaPrimitive, KafkaString, VarInt, VarString};
+use crate::protocol::primitives::{KafkaPrimitive, KafkaString, VarInt};
 use crate::protocol::record::{Record, RecordBatch, RecordHeader};
 use crate::protocol::request::ToBytes;
 use crate::protocol::response::FromBytes;
@@ -179,60 +179,6 @@ impl FetchResponse {
             responses: vec![],
         }
     }
-
-    fn read_record(buffer: &mut Cursor<Vec<u8>>) -> RecordBatch {
-        let mut batch = RecordBatch {
-            base_offset: i64::read_from_buffer(buffer),
-            batch_length: i32::read_from_buffer(buffer),
-            partition_leader_epoch: i32::read_from_buffer(buffer),
-            magic: i8::read_from_buffer(buffer),
-            crc: i32::read_from_buffer(buffer),
-            attributes: i16::read_from_buffer(buffer),
-            last_offset_delta: i32::read_from_buffer(buffer),
-            first_timestamp: i64::read_from_buffer(buffer),
-            max_timestamp: i64::read_from_buffer(buffer),
-            producer_id: i64::read_from_buffer(buffer),
-            producer_epoch: i16::read_from_buffer(buffer),
-            base_sequence: i32::read_from_buffer(buffer),
-            records: vec![],
-        };
-        let _records_length = i32::read_from_buffer(buffer);
-
-        let length = VarInt::read_from_buffer(buffer);
-        let attributes = i8::read_from_buffer(buffer);
-        let timestamp_delta = VarInt::read_from_buffer(buffer);
-        let offset_delta = VarInt::read_from_buffer(buffer);
-        let key = VarString::read_from_buffer(buffer);
-        let key_length =  key.0.len() as i32;
-        let value = VarString::read_from_buffer(buffer);
-        let value_length = value.0.len() as i32;
-        let mut record = Record {
-            length: length.0,
-            attributes,
-            timestamp_delta: timestamp_delta.0,
-            offset_delta: offset_delta.0,
-            key_length,
-            key,
-            value_length,
-            value,
-            headers: vec![],
-        };
-
-        let _header_len = VarInt::read_from_buffer(buffer);
-        let header_key = VarString::read_from_buffer(buffer);
-        let header_key_length = header_key.0.len() as i32;
-        let header_value = VarString::read_from_buffer(buffer);
-        let header_value_length = header_value.0.len() as i32;
-        let header = RecordHeader {
-            header_key_length,
-            header_key,
-            header_value_length,
-            header_value,
-        };
-        record.headers.push(header);
-        batch.records.push(record);
-        batch
-    }
 }
 
 /// Fetch Response (Version: 8) => throttle_time_ms error_code session_id [responses]
@@ -292,7 +238,7 @@ impl FromBytes for FetchResponse {
                 let records_bytes_len = i32::read_from_buffer(buffer);
                 let end = buffer.position() as i32 + records_bytes_len;
                 while (buffer.position() as i32) < end {
-                    let record = Self::read_record(buffer);
+                    let record = RecordBatch::get_from_bytes(buffer);
                     partition.records.push(record);
                 }
                 topic.partition_responses.push(partition);

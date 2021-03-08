@@ -58,7 +58,6 @@ impl KafkaClient {
     }
 
     pub fn next_broker(&mut self) -> &String {
-        println!("{:#?}", self.next_broker.next().unwrap().borrow());
         self.brokers.get(self.next_broker.next().unwrap().borrow()).unwrap()
     }
 

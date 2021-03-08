@@ -3,6 +3,7 @@ use std::io::{Cursor, Read};
 use std::net::TcpStream;
 use byteorder::{ReadBytesExt, BE};
 use std::process::exit;
+use std::any::{Any, type_name};
 
 pub trait FromBytes {
     fn get_from_bytes(buffer: &mut Cursor<Vec<u8>>) -> Self;
@@ -27,6 +28,7 @@ impl<T: FromBytes> Response<T> {
                 buffer
             }
             Err(e) => {
+                println!("{:#?}", type_name::<T>());
                 eprintln!("Message could not be retrieved. \nError: {}", e);
                 exit(1)
             }

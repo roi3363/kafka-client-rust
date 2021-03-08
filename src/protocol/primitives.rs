@@ -1,21 +1,30 @@
 use std::io::{Cursor, Read, Write};
 use std::process::exit;
 use std::str::from_utf8;
+use serde::{Serialize, Deserialize};
 
 use byteorder::{BE, ReadBytesExt, WriteBytesExt};
 
 pub trait KafkaPrimitive {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>);
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self;
+    fn length(&self) -> usize;
 }
 
 
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize)]
 pub struct VarInt(pub i32);
 
 impl KafkaPrimitive for VarInt {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
-        unimplemented!()
+        let mut value = self.0.clone();
+        while (value as u32 & 0xffffff80) != 0 {
+            let b: u8 = ((value & 0x7f) | 0x80) as u8;
+            buffer.write_u8(b).unwrap();
+            value >>= 7;
+        }
+        buffer.write_u8(value as u8).unwrap();
     }
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
@@ -31,49 +40,34 @@ impl KafkaPrimitive for VarInt {
         value >>= 1;
         Self(value)
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct UVarInt(pub u32);
-
-impl KafkaPrimitive for UVarInt {
-    fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
+    fn length(&self) -> usize {
         unimplemented!()
     }
-
-    fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let mut i = 0;
-        let mut value = 0;
-        let mut b = buffer.read_u8().unwrap() as u32;
-        while (b & 0x80) != 0 {
-            value |= (b & 0x7f) << i;
-            i += 7;
-            b = buffer.read_u8().unwrap() as u32;
-        }
-        value |= b << i;
-        // value >>= 7;
-        println!("{:#?}", b);
-        Self(b - 1)
-    }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct KafkaValue(pub Vec<u8>);
 
-#[derive(Debug, Clone)]
-pub struct VarString(pub String);
-
-impl KafkaPrimitive for VarString {
+impl KafkaPrimitive for KafkaValue {
     fn write_to_buffer(&self, buffer: &mut Vec<u8>) {
-        buffer.write_all(self.0.as_bytes()).unwrap();
+        let value_len = VarInt(self.0.len() as i32);
+        value_len.write_to_buffer(buffer);
+        buffer.write_all(self.0.as_slice()).unwrap();
     }
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let string_len = VarInt::read_from_buffer(buffer);
-        let mut string_buffer = vec![0 as u8; string_len.0 as usize];
-        buffer.read_exact(&mut string_buffer).unwrap();
-        let var_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
-        Self(var_string)
+        let value_len = VarInt::read_from_buffer(buffer);
+        let mut value_buffer = vec![0 as u8; value_len.0 as usize];
+        buffer.read_exact(&mut value_buffer).unwrap();
+        Self(value_buffer)
+    }
+
+    fn length(&self) -> usize {
+        unimplemented!()
     }
 }
+
 
 
 #[derive(Debug, Clone)]
@@ -87,15 +81,19 @@ impl KafkaPrimitive for KafkaCompactString {
     }
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
-        let string_len = UVarInt::read_from_buffer(buffer).0;
+        let string_len = VarInt::read_from_buffer(buffer).0;
         // if string_len == -1 {
         //     return KafkaCompactString("".to_string());
         // }
         let mut string_buffer = vec![0 as u8; string_len as usize];
-        buffer.read(&mut string_buffer).unwrap();
+        buffer.read_exact(&mut string_buffer).unwrap();
         let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
-        println!("{:#?}", kafka_string);
         KafkaCompactString(kafka_string)
+    }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
     }
 }
 
@@ -109,6 +107,7 @@ impl KafkaPrimitive for KafkaString {
         buffer.write_all(kafka_string.as_bytes()).unwrap();
     }
 
+
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         let string_len = buffer.read_i16::<BE>().unwrap();
         if string_len == -1 {
@@ -118,6 +117,11 @@ impl KafkaPrimitive for KafkaString {
         buffer.read_exact(&mut string_buffer).unwrap();
         let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
         KafkaString(kafka_string)
+    }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
     }
 }
 
@@ -144,6 +148,11 @@ impl KafkaPrimitive for KafkaNullableString {
         buffer.read_exact(&mut string_buffer).unwrap();
         let kafka_string = from_utf8(string_buffer.as_slice()).unwrap().to_string();
         KafkaNullableString(Some(kafka_string))
+    }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
     }
 }
 
@@ -175,6 +184,11 @@ impl<T: KafkaPrimitive> KafkaPrimitive for KafkaArray<T> {
         }
         KafkaArray(kafka_array)
     }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
+    }
 }
 
 
@@ -186,6 +200,11 @@ impl KafkaPrimitive for bool {
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         buffer.read_i8().unwrap() != 0
     }
+
+
+    fn length(&self) -> usize {
+        1
+    }
 }
 
 impl KafkaPrimitive for i8 {
@@ -195,6 +214,11 @@ impl KafkaPrimitive for i8 {
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         buffer.read_i8().unwrap()
+    }
+
+
+    fn length(&self) -> usize {
+        1
     }
 }
 
@@ -206,6 +230,11 @@ impl KafkaPrimitive for i16 {
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         buffer.read_i16::<BE>().unwrap()
     }
+
+
+    fn length(&self) -> usize {
+        2
+    }
 }
 
 impl KafkaPrimitive for i32 {
@@ -215,6 +244,11 @@ impl KafkaPrimitive for i32 {
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         buffer.read_i32::<BE>().unwrap()
+    }
+
+
+    fn length(&self) -> usize {
+        4
     }
 }
 
@@ -226,6 +260,11 @@ impl KafkaPrimitive for i64 {
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         buffer.read_i64::<BE>().unwrap()
     }
+
+
+    fn length(&self) -> usize {
+        8
+    }
 }
 
 impl KafkaPrimitive for &str {
@@ -236,6 +275,11 @@ impl KafkaPrimitive for &str {
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         unimplemented!()
     }
+
+
+    fn length(&self) -> usize {
+        self.len()
+    }
 }
 
 impl KafkaPrimitive for String {
@@ -245,6 +289,10 @@ impl KafkaPrimitive for String {
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         unimplemented!()
+    }
+
+    fn length(&self) -> usize {
+        self.len()
     }
 }
 
@@ -258,6 +306,11 @@ impl KafkaPrimitive for Vec<u8> {
         buffer.read_exact(&mut bytes_buffer).unwrap();
         bytes_buffer
     }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
+    }
 }
 
 impl<T: KafkaPrimitive + Copy + Default> KafkaPrimitive for Vec<T> {
@@ -270,6 +323,11 @@ impl<T: KafkaPrimitive + Copy + Default> KafkaPrimitive for Vec<T> {
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
         unimplemented!()
     }
+
+
+    fn length(&self) -> usize {
+        unimplemented!()
+    }
 }
 
 impl<T: KafkaPrimitive + Copy + Default> KafkaPrimitive for &[T] {
@@ -280,6 +338,11 @@ impl<T: KafkaPrimitive + Copy + Default> KafkaPrimitive for &[T] {
     }
 
     fn read_from_buffer(buffer: &mut Cursor<Vec<u8>>) -> Self {
+        unimplemented!()
+    }
+
+
+    fn length(&self) -> usize {
         unimplemented!()
     }
 }

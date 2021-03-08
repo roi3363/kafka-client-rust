@@ -1,5 +1,8 @@
 use crate::protocol::header::RequestHeader;
 
+pub trait ToBytes {
+    fn get_in_bytes(&self) -> Vec<u8>;
+}
 
 #[derive(Debug)]
 pub struct Request<T: ToBytes> {
@@ -10,7 +13,6 @@ pub struct Request<T: ToBytes> {
 }
 
 impl<T: ToBytes> Request<T> {
-
     pub fn new(header: RequestHeader, body: T) -> Self {
         let mut buffer = header.get_in_bytes();
         buffer.extend(body.get_in_bytes());
@@ -30,6 +32,4 @@ impl<T: ToBytes> Request<T> {
     }
 }
 
-pub trait ToBytes {
-    fn get_in_bytes(&self) -> Vec<u8>;
-}
+

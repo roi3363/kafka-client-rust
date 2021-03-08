@@ -16,47 +16,13 @@ use crate::protocol::join_group::{JoinGroupRequest, JoinGroupResponse};
 use crate::protocol::list_offsets::{ListOffsetsRequest, ListOffsetsResponse};
 use crate::protocol::metadata::{MetadataRequest, MetadataResponse};
 use crate::protocol::offset_commit::{CommitOffsetRequest, CommitOffsetResponse};
-use crate::protocol::primitives::{KafkaArray, KafkaString};
+use crate::protocol::primitives::{KafkaString, KafkaPrimitive};
 use crate::protocol::request::Request;
-use crate::protocol::response::Response;
 use crate::protocol::produce::{ProduceResponse, ProduceRequest};
-
-#[macro_export]
-macro_rules! struct_value (
-    ({ $($t:ty: $fname:ident => $fvalue:expr),* $(,)? }) => (
-        use crate::protocol::primitives::KafkaPrimitive;
-
-        let mut buffer: Vec<u8> = Vec::new();
-        $(
-            if stringify!($t).starts_with("Vec") {
-                let kafka_array = KafkaArray($fvalue);
-                kafka_array(&mut buffer);
-            } else {
-                $fvalue.write_to_buffer(&mut buffer);
-            }
-        )*
-    );
-);
-
+use crate::protocol::response::Response;
 
 const CLIENT_ID: &str = "consumer-client";
 
-#[macro_export]
-macro_rules! struct_def (
-    (struct $name:ident { $($fname:ident : $ftype:ty),+ $(,)? }) => (
-        struct Data {
-            $($fname : $ftype),*
-        }
-
-        impl Data {
-            fn fields() -> HashMap<String, String> {
-                let mut names = HashMap::new();
-                $(names.insert(stringify!($fname).to_string(), stringify!($ftype).to_string());)*
-                names
-            }
-        }
-    );
-);
 
 
 #[derive(Debug)]
@@ -74,13 +40,16 @@ impl ConsumerClient {
     pub fn topics_metadata_in_cache(&self, topics: &Vec<&str>) -> bool {
         self.kafka_client.topics_metadata.keys().any(|x| topics.contains(&x.as_str()))
     }
+    pub fn topic_metadata_in_cache(&self, topic: &str) -> bool {
+        self.kafka_client.topics_metadata.contains_key(topic)
+    }
 
     pub fn fetch(&mut self, topics: Vec<&str>) -> Vec<Response<FetchResponse>> {
         if !self.topics_metadata_in_cache(&topics) {
             self.kafka_client.update_topics_metadata();
         }
 
-        let mut child_threads = Vec::new();
+        let mut responses = Vec::new();
         for topic in topics {
             let partitions = &self.kafka_client.topics_metadata.get(topic).unwrap().clone();
             for (&node_id, partitions) in partitions {
@@ -90,25 +59,17 @@ impl ConsumerClient {
                 let mut partitions_by_topic = HashMap::new();
                 partitions_by_topic.insert(topic.to_string(), partitions);
                 let body = FetchRequest::new(partitions_by_topic);
-                let api_version = self.kafka_client.api_versions.get(&(ApiKeys::Fetch as i16)).unwrap().clone();
-                let broker = self.kafka_client.brokers.get(&node_id).unwrap().to_string();
-                let correlation_id = self.kafka_client.correlation_id();
-                child_threads.push(thread::spawn(move || {
-                    let response: Response<FetchResponse> = KafkaClient::send_request2(
-                        CLIENT_ID.to_string(),
-                        api_version,
-                        KafkaClient::tcp_stream2(broker),
-                        body,
-                        correlation_id,
-                        8
-                    );
-                    response
-                }));
+                let response: Response<FetchResponse> = self.kafka_client.send_request(
+                    Some(node_id),
+                    ApiKeys::Fetch,
+                    body,
+                    8
+                );
+                responses.push(response);
             }
         }
-        let mut responses = Vec::new();
-        child_threads.into_iter().for_each(|x| responses.push(x.join().unwrap()));
         responses
+
     }
 
 
@@ -140,13 +101,13 @@ impl ConsumerClient {
         response
     }
 
-    pub fn produce<T>(&mut self, topics: Vec<&str>, data: Vec<T>) -> Response<ProduceResponse> {
-        if !self.topics_metadata_in_cache(&topics) {
+    pub fn produce(&mut self, topic: &str, key: Vec<u8>, value: Vec<u8>) -> Response<ProduceResponse> {
+        if !self.topic_metadata_in_cache(topic) {
             self.kafka_client.update_topics_metadata();
         }
-        let body = ProduceRequest::new();
+        let body = ProduceRequest::new(topic.to_string(), key, value);
         let response: Response<ProduceResponse> = self.kafka_client.send_request(
-            None, ApiKeys::Produce, body, 6);
+            None, ApiKeys::Produce, body, 8);
         response
     }
 }
